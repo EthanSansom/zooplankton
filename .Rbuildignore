@@ -1,2 +1,4 @@
 ^zooplankton\.Rproj$
 ^\.Rproj\.user$
+^\.github$
+^python$
