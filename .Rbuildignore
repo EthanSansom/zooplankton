@@ -6,3 +6,5 @@
 ^python$
 ^README\.Rmd$
 ^LICENSE\.md$
+^[.]?air[.]toml$
+^\.vscode$
