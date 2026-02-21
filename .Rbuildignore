@@ -3,3 +3,4 @@
 ^\.github$
 ^python$
 ^README\.Rmd$
+^LICENSE\.md$
