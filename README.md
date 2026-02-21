@@ -22,6 +22,10 @@ development tools. But, you can think of this as just a project.
 Dependencies are managed with `renv`. Run `renv::restore()` from the R
 console in the repo root directory to install the required dependencies.
 
+Run R scripts from the console using `source()`,
+e.g. `source("R/-hello/hello.R")`. Filepaths in R scripts are relative
+to the root directory (using `here::here()`).
+
 ### Python
 
 Dependencies are managed with `uv`. Run the following in the terminal at
@@ -33,6 +37,14 @@ uv sync --project python
 
 This creates `python/.venv` and installs the required python
 dependencies.
+
+Run Python scripts from the terminal via `uv run script.py`. Filepaths
+in Python scripts are relative to the `python/` directory.
+
+``` bash
+cd python
+uv run hello.py
+```
 
 ### Code Formatting
 
