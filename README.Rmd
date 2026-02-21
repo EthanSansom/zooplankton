@@ -48,7 +48,7 @@ cd python
 uv run hello.py
 ```
 
-## Check Your Installation
+### Check Your Installation
 
 To confirm everything is installed correctly, run the following tests:
 
