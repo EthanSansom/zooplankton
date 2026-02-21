@@ -46,6 +46,25 @@ cd python
 uv run hello.py
 ```
 
+## Check Your Installation
+
+To confirm everything is installed correctly, run the following tests:
+
+**R** (from R console):
+
+``` r
+source("R/-hello/hello.R")
+```
+
+**Python** (from `python/` terminal):
+
+``` bash
+uv run hello.py
+```
+
+Both should print their respective working directories without errors or
+warnings.
+
 ### Code Formatting
 
 Formatting is enforced on commit via
