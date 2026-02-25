@@ -46,4 +46,4 @@ images <- py$images
 labels <- as.vector(py$labels) # An <array> by default
 
 # Plot the first image
-graphics::image(images[1, , ])
+graphics::image(images[1, , ], col = gray.colors(256))
