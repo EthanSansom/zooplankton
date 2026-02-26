@@ -45,5 +45,8 @@ labels = np.array([data.classes[i] for i in labels_list])
 images <- py$images
 labels <- as.vector(py$labels) # An <array> by default
 
+# Shape is correct: 6200, 28, 28
+dim(images)
+
 # Plot the first image
 graphics::image(images[1, , ], col = gray.colors(256))

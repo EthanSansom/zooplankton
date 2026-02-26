@@ -1,14 +1,15 @@
 import torch
 from torch.utils.data import DataLoader, Subset, random_split
+import torch.nn as nn
 import torchvision
 from torchvision import datasets, transforms
 
+import timm
 import numpy as np
-import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Callable, TypedDict
+from typing import Dict, List, Optional, Callable, TypedDict, Tuple
 from pathlib import Path
 import tomllib
 import random
@@ -16,6 +17,7 @@ import os
 
 # This is loosely based on the implementation in:
 # https://www.leoniemonigatti.com/blog/pytorch-image-classification.html
+# https://github.com/Tony-Y/pytorch_warmup/blob/master/examples/emnist/main.py
 
 # Type Aliases -----------------------------------------------------------------
 
@@ -65,16 +67,6 @@ cfg.system = SimpleNamespace(
         else "cpu"
     )
 )
-
-# cfg.root_dir = "images"
-# cfg.image_size = 256
-# cfg.batch_size = 32
-# cfg.n_classes = 2
-# cfg.backbone = 'resnet18'
-# cfg.learning_rate = 1e-4
-# cfg.lr_min = 1e-5
-# cfg.epochs = 5
-# cfg.n_folds = 3
 
 
 # TODO Replace with formal logging
@@ -156,10 +148,10 @@ def calculate_metrics(
     if stats["n_total"] == 0:
         raise ValueError("No samples processed (n_total = 0)")
 
-    avg_loss = stats["loss"] / stats["n_batches"]
-    accuracy = 100 * stats["n_correct"] / stats["n_total"]
-
-    results = {"loss": avg_loss, "accuracy": accuracy}
+    results = {
+        "loss": stats["loss"] / stats["n_batches"],
+        "accuracy": 100 * stats["n_correct"] / stats["n_total"],
+    }
 
     if metrics_fns is not None:
         if stats["predictions"] is None or stats["labels"] is None:
@@ -183,6 +175,8 @@ def calculate_metrics(
                 f"n_total ({stats['n_total']})"
             )
 
+        # Attempt to apply the metrics functions. Catching errors since these
+        # are arbitrary-ish functions.
         for name, metric_fn in metrics_fns.items():
             try:
                 results[name] = metric_fn(labels, predictions)
@@ -196,7 +190,7 @@ def print_metrics(metrics: MetricsDict, header: str = "Metrics:") -> None:
     """Print metrics dictionary"""
     print(header)
     for name, value in metrics.items():
-        print(f"{name.replace('_', ' ').title()}: {value:.4f}")
+        print(f"  {name.replace('_', ' ').title()}: {value:.4f}")
 
 
 def train_epoch(
@@ -232,7 +226,7 @@ def evaluate(
     desc="Evaluating",
     metrics_fns: Optional[MetricsFns] = None,
     collect_predictions=False,
-) -> MetricsDict:
+) -> Tuple[MetricsDict, Optional[list], Optional[list]]:
     """Evaluate for one epoch"""
     model.eval()
     stats = init_stats(
@@ -250,7 +244,7 @@ def evaluate(
             update_stats(stats, loss.item(), predicted, labels)
 
     epoch_metrics = calculate_metrics(stats, metrics_fns)
-    return epoch_metrics
+    return epoch_metrics, stats["predictions"], stats["labels"]
 
 
 def fit(
@@ -265,6 +259,9 @@ def fit(
     valid_metrics_fns: Optional[MetricsFns] = None,
 ):
     """Train model with optional validation"""
+    if valid_metrics_fns is None:
+        valid_metrics_fns = train_metrics_fns
+
     history = {"train_metrics": [], "valid_metrics": []}
 
     n_epochs = cfg.train.epochs
@@ -274,7 +271,12 @@ def fit(
 
         # Train for one epoch and update the learning rate scheduler
         train_metrics = train_epoch(
-            model, train_loader, criterion, optimizer, cfg, metrics=train_metrics_fns
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            cfg,
+            metrics_fns=train_metrics_fns,
         )
         scheduler.step()
 
@@ -282,13 +284,14 @@ def fit(
         print_metrics(train_metrics, header="Training Metrics:")
 
         if valid_loader:
-            valid_metrics = evaluate(
+            # evaluate() returns predictions and labels as well as metrics
+            valid_metrics, _, _ = evaluate(
                 model,
                 valid_loader,
                 criterion,
                 cfg,
                 desc="Validating",
-                metrics=valid_metrics_fns,
+                metrics_fns=valid_metrics_fns,
             )
             history["valid_metrics"].append(valid_metrics)
             print_metrics(valid_metrics, header="Validation Metrics:")
@@ -305,6 +308,9 @@ transform = transforms.Compose(
         lambda img: torchvision.transforms.functional.rotate(img, -90),
         lambda img: torchvision.transforms.functional.hflip(img),
         torchvision.transforms.ToTensor(),
+        # Known EMNIST mean and SD, see:
+        # https://github.com/Tony-Y/pytorch_warmup/blob/master/examples/emnist/main.py
+        transforms.Normalize((0.1751,), (0.3332,)),
     ]
 )
 
@@ -341,29 +347,10 @@ if cfg.dev.mode == "dev":
     test_data = Subset(test_data, test_indices)
     print_lvl(f"Subset test data: N = {n_test} -> {n_test_subset}")
 
-# Plot a 3 x 3 grid of test images post-transform
-if cfg.dev.mode == "dev":
-    indices = np.random.choice(len(test_data), size=9, replace=False)
-    fig, axes = plt.subplots(3, 3, figsize=(8, 8))
-    axes = axes.ravel()
-
-    for i, idx in enumerate(indices):
-        image, label = test_data[idx]
-
-        # Convert tensor to numpy
-        img = image.squeeze().numpy()
-
-        axes[i].imshow(img, cmap="gray")
-        axes[i].set_title(f"Label: {label}")
-        axes[i].axis("off")
-
-    plt.tight_layout()
-    plt.show()
-
 # Split ------------------------------------------------------------------------
 
 # Split into training and validation sets
-valid_size = int(len(test_data) * cfg.train.valid_frac)
+valid_size = int(len(train_data) * cfg.train.valid_frac)
 train_size = len(train_data) - valid_size
 
 train_data, valid_data = random_split(
@@ -394,11 +381,23 @@ test_loader = DataLoader(
 
 # Train ------------------------------------------------------------------------
 
-# TODO: Training
-# model = timm.create_model(
-#     cfg.backbone,
-#     pretrained = True,
-#     num_classes = 62,
-#     in_chans=1
-# )
-# model = model.to(cfg.device)
+model = timm.create_model(
+    cfg.model.backbone,
+    pretrained=True,
+    num_classes=EMNIST_N_CLASSES,
+    # EMNIST images are greyscale (1 channel), not RGB (3 channels)
+    in_chans=1,
+).to(cfg.system.device)
+
+criterion = nn.CrossEntropyLoss()
+
+optimizer = torch.optim.Adam(
+    model.parameters(),
+    lr=cfg.train.learning_rate,
+    weight_decay=0,
+)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=cfg.train.epochs, eta_min=cfg.train.learning_rate_min
+)
+
+fit(model, optimizer, criterion, scheduler, cfg, train_loader, valid_loader)
