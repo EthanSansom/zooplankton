@@ -5,17 +5,37 @@ from torchvision import datasets, transforms
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score
 
 from tqdm import tqdm
 from types import SimpleNamespace
+from typing import Dict, List, Optional, Callable, TypedDict
 from pathlib import Path
 import tomllib
 import random
 import os
 
-# NOTE: Based on:
+# This is loosely based on the implementation in:
 # https://www.leoniemonigatti.com/blog/pytorch-image-classification.html
+
+# Type Aliases -----------------------------------------------------------------
+
+# During training and evaluation, the caller may provide a dictionary of
+# metrics functions, e.g. {"accuracy" : sklearn.metrics::accuracy_score },
+# which take a list of labels and predictions as it's input.
+MetricFn = Callable[[List[int], List[int]], float]
+MetricsFns = Dict[str, MetricFn]
+MetricsDict = Dict[str, float]
+
+
+# Running statistics collected during training and evaluation
+class StatsDict(TypedDict):
+    loss: float
+    n_correct: int
+    n_total: int
+    predictions: Optional[List[int]]
+    labels: Optional[List[int]]
+    n_batches: int
+
 
 # Constants --------------------------------------------------------------------
 
@@ -98,43 +118,126 @@ set_seed(cfg.train.seed)
 # - Eventually we'll want to add better function documentation (e.g. docstring)
 
 
-def train_epoch(model, loader, criterion, optimizer, scheduler, cfg):
+def init_stats(collect_predictions: bool = False) -> StatsDict:
+    """Initiate a statistics dictionary to record training/evaluation statistics"""
+
+    return {
+        "loss": 0.0,
+        "n_correct": 0,
+        "n_total": 0,
+        "predictions": [] if collect_predictions else None,
+        "labels": [] if collect_predictions else None,
+        "n_batches": 0,
+    }
+
+
+def update_stats(
+    stats: StatsDict, loss: float, predictions: torch.Tensor, labels: torch.Tensor
+) -> None:
+    """Update statistics dictionary with batch results (in-place)"""
+
+    stats["loss"] += loss
+    stats["n_batches"] += 1
+
+    batch_size = labels.size(0)
+    stats["n_total"] += batch_size
+    stats["n_correct"] += (predictions == labels).sum().item()
+
+    if stats["predictions"] is not None:
+        stats["predictions"].extend(predictions.cpu().numpy())
+        stats["labels"].extend(labels.cpu().numpy())
+
+
+def calculate_metrics(
+    stats: StatsDict, metrics_fns: Optional[MetricsFns] = None
+) -> MetricsDict:
+    """Calculate final metrics from accumulated statistics"""
+
+    if stats["n_total"] == 0:
+        raise ValueError("No samples processed (n_total = 0)")
+
+    avg_loss = stats["loss"] / stats["n_batches"]
+    accuracy = 100 * stats["n_correct"] / stats["n_total"]
+
+    results = {"loss": avg_loss, "accuracy": accuracy}
+
+    if metrics_fns is not None:
+        if stats["predictions"] is None or stats["labels"] is None:
+            raise ValueError(
+                "metrics_fns provided but predictions not collected. "
+                "Set collect_predictions=True in init_stats()"
+            )
+
+        predictions = stats["predictions"]
+        labels = stats["labels"]
+
+        if len(predictions) != len(labels):
+            raise ValueError(
+                f"Length mismatch: predictions ({len(predictions)}) "
+                f"vs labels ({len(labels)})"
+            )
+
+        if len(predictions) != stats["n_total"]:
+            raise ValueError(
+                f"predictions length ({len(predictions)}) does not match "
+                f"n_total ({stats['n_total']})"
+            )
+
+        for name, metric_fn in metrics_fns.items():
+            try:
+                results[name] = metric_fn(labels, predictions)
+            except Exception as e:
+                raise ValueError(f"Error computing metric '{name}': {e}") from e
+
+    return results
+
+
+def print_metrics(metrics: MetricsDict, header: str = "Metrics:") -> None:
+    """Print metrics dictionary"""
+    print(header)
+    for name, value in metrics.items():
+        print(f"{name.replace('_', ' ').title()}: {value:.4f}")
+
+
+def train_epoch(
+    model, loader, criterion, optimizer, cfg, metrics_fns: Optional[MetricsFns] = None
+) -> MetricsDict:
     """Train for one epoch"""
     model.train()
-    running_loss = 0.0
-    n_correct = 0
-    n_total = 0
+    stats = init_stats(collect_predictions=(metrics_fns is not None))
 
     for inputs, labels in tqdm(loader, desc="Training"):
         inputs, labels = inputs.to(cfg.system.device), labels.to(cfg.system.device)
 
+        # Update the model
         optimizer.zero_grad()
-        with torch.set_grad_enabled(True):
-            outputs = model(inputs)
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
 
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+        # Update statistics
+        _, predicted = torch.max(outputs.data, 1)
+        update_stats(stats, loss.item(), predicted, labels)
 
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            n_total += labels.size(0)
-            n_correct += (predicted == labels).sum().item()
-
-        scheduler.step()
-
-    epoch_loss = running_loss / len(loader)
-    epoch_acc = 100 * n_correct / n_total
-
-    return epoch_loss, epoch_acc
+    epoch_metrics = calculate_metrics(stats, metrics_fns)
+    return epoch_metrics
 
 
-def evaluate(model, loader, criterion, cfg, desc="Evaluating", metrics=None):
-    """Evaluate model"""
+def evaluate(
+    model,
+    loader,
+    criterion,
+    cfg,
+    desc="Evaluating",
+    metrics_fns: Optional[MetricsFns] = None,
+    collect_predictions=False,
+) -> MetricsDict:
+    """Evaluate for one epoch"""
     model.eval()
-    running_loss = 0.0
-    all_predictions = []
-    all_labels = []
+    stats = init_stats(
+        collect_predictions=collect_predictions or (metrics_fns is not None)
+    )
 
     with torch.no_grad():
         for inputs, labels in tqdm(loader, desc=desc, leave=False):
@@ -143,27 +246,54 @@ def evaluate(model, loader, criterion, cfg, desc="Evaluating", metrics=None):
             outputs = model(inputs)
             loss = criterion(outputs, labels)
 
-            running_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
+            update_stats(stats, loss.item(), predicted, labels)
 
-            all_predictions.extend(predicted.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+    epoch_metrics = calculate_metrics(stats, metrics_fns)
+    return epoch_metrics
 
-    # Allowing `metrics` to be nothing, a single call, or a dictionary of calls
-    if metrics is None:
-        metrics = {"accuracy": accuracy_score}
-    elif callable(metrics):
-        metrics = {"metric": metrics}
-    elif not isinstance(metrics, dict):
-        raise ValueError("metrics must be None, callable, or dict")
 
-    epoch_loss = running_loss / len(loader)  # Mean loss
-    epoch_metrics = {
-        name: metric_fn(all_labels, all_predictions)
-        for name, metric_fn in metrics.items()
-    }
+def fit(
+    model,
+    optimizer,
+    criterion,
+    scheduler,
+    cfg,
+    train_loader,
+    valid_loader=None,
+    train_metrics_fns: Optional[MetricsFns] = None,
+    valid_metrics_fns: Optional[MetricsFns] = None,
+):
+    """Train model with optional validation"""
+    history = {"train_metrics": [], "valid_metrics": []}
 
-    return epoch_loss, epoch_metrics, all_predictions, all_labels
+    n_epochs = cfg.train.epochs
+    for epoch in range(n_epochs):
+        print(f"Epoch {epoch + 1}/{n_epochs}")
+        set_seed(cfg.train.seed + epoch)
+
+        # Train for one epoch and update the learning rate scheduler
+        train_metrics = train_epoch(
+            model, train_loader, criterion, optimizer, cfg, metrics=train_metrics_fns
+        )
+        scheduler.step()
+
+        history["train_metrics"].append(train_metrics)
+        print_metrics(train_metrics, header="Training Metrics:")
+
+        if valid_loader:
+            valid_metrics = evaluate(
+                model,
+                valid_loader,
+                criterion,
+                cfg,
+                desc="Validating",
+                metrics=valid_metrics_fns,
+            )
+            history["valid_metrics"].append(valid_metrics)
+            print_metrics(valid_metrics, header="Validation Metrics:")
+
+    return model, history
 
 
 # Load -------------------------------------------------------------------------
@@ -233,15 +363,15 @@ if cfg.dev.mode == "dev":
 # Split ------------------------------------------------------------------------
 
 # Split into training and validation sets
-val_size = int(len(test_data) * cfg.train.val_frac)
-train_size = len(train_data) - val_size
+valid_size = int(len(test_data) * cfg.train.valid_frac)
+train_size = len(train_data) - valid_size
 
-train_data, val_data = random_split(
+train_data, valid_data = random_split(
     train_data,
-    [train_size, val_size],
+    [train_size, valid_size],
     generator=torch.Generator().manual_seed(cfg.train.seed),
 )
-print_lvl(f"Train/Validate split: {len(train_data)}/{len(val_data)}")
+print_lvl(f"Train/Validate split: {len(train_data)}/{len(valid_data)}")
 
 train_loader = DataLoader(
     train_data,
@@ -249,8 +379,8 @@ train_loader = DataLoader(
     shuffle=True,
     num_workers=cfg.train.num_workers,
 )
-val_loader = DataLoader(
-    val_data,
+valid_loader = DataLoader(
+    valid_data,
     batch_size=cfg.train.batch_size,
     shuffle=False,
     num_workers=cfg.train.num_workers,

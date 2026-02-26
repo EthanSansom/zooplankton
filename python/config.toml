@@ -2,7 +2,8 @@
 seed = 123
 batch_size = 64
 num_workers = 2
-val_frac = 0.2
+valid_frac = 0.2
+epochs = 10
 
 [model]
 backbone = "resnet18"
