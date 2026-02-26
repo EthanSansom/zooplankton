@@ -1,0 +1,13 @@
+[train]
+seed = 123
+batch_size = 64
+num_workers = 2
+val_frac = 0.2
+
+[model]
+backbone = "resnet18"
+
+[dev]
+mode="dev"    # dev | train
+data_frac=0.20 # Fraction for subsetting
+print_level=1 # Minimum print level
