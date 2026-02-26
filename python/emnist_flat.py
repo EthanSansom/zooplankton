@@ -6,6 +6,7 @@ from torchvision import datasets, transforms
 import numpy as np
 import matplotlib.pyplot as plt
 
+from tqdm import tqdm
 from types import SimpleNamespace
 from pathlib import Path
 import random
@@ -17,6 +18,8 @@ import os
 # Constants --------------------------------------------------------------------
 
 EMNIST_N_CLASSES = 62
+SCRIPT_DIR = Path(__file__).parent.resolve()
+RAW_DATA_DIR = SCRIPT_DIR / "00_raw_data"
 
 # Config -----------------------------------------------------------------------
 
@@ -25,7 +28,6 @@ cfg = SimpleNamespace(**{})
 # Misc
 cfg.mode = "dev"  # dev | train
 cfg.seed = 123
-cfg.raw_data_dir = Path("00_raw_data")
 
 # Torch/CNN Settings
 cfg.batch_size = 64
@@ -95,41 +97,41 @@ set_seed(cfg.seed)
 # - Look into python-y way to do this
 # - Eventually we'll want to add better function documentation (e.g. docstring)
 
-# def train_epoch(model, loader, criterion, optimizer, scheduler, cfg):
-#     """Train for one epoch"""
-#     model.train()
-#     running_loss = 0.0
-#     n_correct = 0
-#     n_total = 0
 
-#     for inputs, labels in tqdm(loader, desc="Training"):
-#         inputs, labels = inputs.to(device), labels.to(device)
+def train_epoch(model, loader, criterion, optimizer, scheduler, cfg):
+    """Train for one epoch"""
+    model.train()
+    running_loss = 0.0
+    n_correct = 0
+    n_total = 0
 
-#         optimizer.zero_grad()
-#         with torch.set_grad_enabled(True):
-#             predictions = model(inputs)
+    for inputs, labels in tqdm(loader, desc="Training"):
+        inputs, labels = inputs.to(cfg.device), labels.to(cfg.device)
 
-#             loss = criterion(predictions, labels)
-#             loss.backward()
-#             optimizer.step()
+        optimizer.zero_grad()
+        with torch.set_grad_enabled(True):
+            outputs = model(inputs)
 
-#             running_loss += loss.item()
-#             _, predicted = torch.max(outputs.data, 1)
-#             total += labels.size(0)
-#             correct += (predicted == labels).sum().item()
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-#         # Update the learning rate using the learning-rate scheduler
-#         scheduler.step()
+            running_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            n_total += labels.size(0)
+            n_correct += (predicted == labels).sum().item()
 
-#     epoch_loss = running_loss / len(loader)
-#     epoch_acc = 100 * correct / total
+        scheduler.step()
 
-#     return epoch_loss, epoch_acc
+    epoch_loss = running_loss / len(loader)
+    epoch_acc = 100 * n_correct / n_total
+
+    return epoch_loss, epoch_acc
 
 
 # Load -------------------------------------------------------------------------
 
-# EMNIST images are rotated
+# EMNIST images are rotated, flipping them for easier human readability
 # https://stackoverflow.com/questions/48532761/letters-in-emnist-training-dataset-are-rotated-and-little-vague
 transform = transforms.Compose(
     [
@@ -140,14 +142,14 @@ transform = transforms.Compose(
 )
 
 train_data = datasets.EMNIST(
-    root=cfg.raw_data_dir,
+    root=RAW_DATA_DIR,
     split="byclass",
     train=True,
     download=True,
     transform=transform,
 )
 test_data = datasets.EMNIST(
-    root=cfg.raw_data_dir,
+    root=RAW_DATA_DIR,
     split="byclass",
     train=False,
     download=True,

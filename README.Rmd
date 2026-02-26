@@ -28,7 +28,7 @@ This repo is structured as an R package at the root with a Python subproject und
 
 Dependencies are managed with `renv`. Run `renv::restore()` from the R console in the repo root directory to install the required dependencies.
 
-Run R scripts from the console using `source()`, e.g. `source("R/-hello/hello.R")`. Filepaths in R scripts are relative to the root directory (using `here::here()`).
+Run R scripts from the console using `source()`, e.g. `source("R/-hello/hello.R")`.
 
 ### Python
 
@@ -40,29 +40,23 @@ uv sync --project python
 
 This creates `python/.venv` and installs the required python dependencies.
 
-Run Python scripts from the terminal via `uv run script.py`. Filepaths in Python
-scripts are relative to the `python/` directory.
-
-``` bash
-cd python
-uv run hello.py
-```
+Run Python scripts from the terminal using `uv`, e.g. `uv run python/hello.py`.
 
 ### Check Your Installation
 
 To confirm everything is installed correctly, run the following tests:
 
-**R** (from R console):
+**R** (from the R console):
 ```r
 source("R/-hello/hello.R")
 ```
 
-**Python** (from `python/` terminal):
+**Python** (from the terminal):
 ```bash
-uv run hello.py
+uv run python/hello.py
 ```
 
-Both should print their respective working directories without errors or warnings.
+Both should print the root directory of this project without errors or warnings.
 
 ### Code Formatting
 
