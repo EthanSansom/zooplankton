@@ -4,6 +4,6 @@
 .httr-oauth
 .DS_Store
 .quarto
-python/00_raw_data/
-python/01_clean_data/
-python/02_weights/
+python/00_raw_data/**
+python/01_clean_data/**
+python/02_weights/**
