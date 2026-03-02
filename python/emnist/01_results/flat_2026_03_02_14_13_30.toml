@@ -1,0 +1,26 @@
+[train]
+seed = 123
+epochs = 1
+
+[validate]
+fraction = 0.2
+
+[model]
+backbone = "resnet18"
+
+[data]
+fraction = 1
+batch_size = 64
+num_workers = 0
+
+[optimizer]
+learning_rate = 0.0001
+
+[scheduler]
+learning_rate_min = 1e-05
+
+[metadata]
+device = "mps"
+starttime = "2026-03-02T14:07:41.163752"
+endtime = "2026-03-02T14:13:30.193387"
+duration = "0:05:49.029635"
