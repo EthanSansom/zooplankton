@@ -1,6 +1,6 @@
 import torch
-from torch.utils.data import random_split
 import numpy as np
+from torch.utils.data import random_split
 
 import os
 import random
@@ -26,6 +26,7 @@ def set_seed(seed=123):
         torch.backends.cudnn.benchmark = False
 
 
+# TODO: Remove splitting
 def split(data, lengths, cfg):
     return random_split(
         data,

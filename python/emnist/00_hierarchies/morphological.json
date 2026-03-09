@@ -1,0 +1,13 @@
+{
+  "root": ["curved", "straight", "mixed"],
+  "curved": ["closed_curve", "open_curve"],
+  "straight": ["vertical", "horizontal_diagonal", "angular"],
+  "mixed": ["curve_and_line", "complex"],
+  "closed_curve": ["O", "o", "0", "Q", "D"],
+  "open_curve": ["C", "c", "U", "u", "S", "s", "J", "j"],
+  "vertical": ["I", "i", "l", "1"],
+  "horizontal_diagonal": ["7", "Z", "z"],
+  "angular": ["V", "v", "A", "L", "N", "n", "M", "m", "W", "w"],
+  "curve_and_line": ["P", "p", "R", "r", "B", "b", "d", "q", "6", "9", "a", "e", "f", "g"],
+  "complex": ["E", "F", "G", "H", "h", "K", "k", "T", "t", "X", "x", "Y", "y", "2", "3", "4", "5", "8"]
+}

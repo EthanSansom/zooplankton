@@ -128,6 +128,7 @@ def fit_model(
     if valid_metrics_fns is None:
         valid_metrics_fns = train_metrics_fns
 
+    # TODO: Dump the metrics to some results file for later reference!
     history = {"train_metrics": [], "valid_metrics": []}
 
     n_epochs = cfg.train.epochs
@@ -135,7 +136,6 @@ def fit_model(
         print(f"Epoch {epoch + 1}/{n_epochs}")
         set_seed(cfg.train.seed + epoch)
 
-        # Train for one epoch and update the learning rate scheduler
         train_metrics = train_model(
             model,
             train_loader,
@@ -150,7 +150,6 @@ def fit_model(
         print_metrics(train_metrics, header="Training Metrics:")
 
         if valid_loader:
-            # evaluate() returns predictions and labels as well as metrics
             valid_metrics = validate_model(
                 model,
                 valid_loader,

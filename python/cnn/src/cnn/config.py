@@ -17,6 +17,7 @@ class Config:
 
         # The Config class "owns" the [metadata] table in the TOML file
         if hasattr(self, "metadata"):
+            # TODO: Change to a warning instead "Skipped reading [metadata] table."
             raise ValueError(
                 "Configuration .toml file may not have a [metadata] table."
             )
