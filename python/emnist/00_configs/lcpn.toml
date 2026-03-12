@@ -3,13 +3,13 @@ seed = 123
 epochs = 5
 
 [validate]
-fraction=0.2
+fraction = 0.2
 
 [model]
 backbone = "resnet18"
 
 [data]
-fraction=0.2
+fraction = 0.2
 batch_size = 64
 num_workers = 0
 

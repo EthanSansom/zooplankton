@@ -208,7 +208,9 @@ class LCPNCollator:
 
         return images, batch_labels
 
-    def unbatch(self, batch_labels: Dict[str, torch.Tensor], index: int) -> List[str]:
+    def uncollate_label_path(
+        self, batch_labels: Dict[str, torch.Tensor], index: int
+    ) -> List[str]:
         """
         Extract path for a single sample from batched labels
 
@@ -248,7 +250,23 @@ class LCPNCollator:
 
         return path
 
-    def unbatch_all(self, batch_labels: Dict[str, torch.Tensor]) -> List[List[str]]:
+    def uncollate_label_leaf(
+        self, batch_labels: Dict[str, torch.Tensor], index: int
+    ) -> str:
+        """
+        Extract a leaf class for a sample in the batched labels
+
+        Args:
+            batch_labels: Batched labels dict from __call__
+
+        Returns:
+            A leaf class, e.g. 'C'
+        """
+        return self.uncollate_label_path(batch_labels, index)[-1]
+
+    def uncollate_label_paths(
+        self, batch_labels: Dict[str, torch.Tensor]
+    ) -> List[List[str]]:
         """
         Extract paths for all samples from batched labels
 
@@ -264,4 +282,18 @@ class LCPNCollator:
             ]
         """
         batch_size = next(iter(batch_labels.values())).shape[0]
-        return [self.unbatch(batch_labels, i) for i in range(batch_size)]
+        return [self.uncollate_label_path(batch_labels, i) for i in range(batch_size)]
+
+    def uncollate_label_leaves(
+        self, batch_labels: Dict[str, torch.Tensor]
+    ) -> List[str]:
+        """
+        Extract leaf classes for all samples from batched labels
+
+        Args:
+            batch_labels: Batched labels dict from __call__
+
+        Returns:
+            List of leaf classes (one per sample), e.g. ['C', 'I', ...]
+        """
+        return [path[-1] for path in self.uncollate_label_paths(batch_labels)]
