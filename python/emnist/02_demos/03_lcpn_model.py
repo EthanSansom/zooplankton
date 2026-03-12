@@ -1,5 +1,3 @@
-# emnist/test_lcpn_model.py
-
 from cnn.hierarchy import Hierarchy
 from cnn.models.hierarchical import LCPNModel
 from cnn.data import LCPNDataset, LCPNCollator
@@ -9,27 +7,25 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from pathlib import Path
 
+# Setup ------------------------------------------------------------------------
+
 SCRIPT_DIR = Path(__file__).parent
+HIERARCHIES_DIR = SCRIPT_DIR.parent / "00_hierarchies"
+DATA_DIR = SCRIPT_DIR.parent / "00_raw_data"
 
-print("=" * 80)
+# Demo -------------------------------------------------------------------------
+
 print("LCPN MODEL TEST")
-print("=" * 80)
 
-# ============================================================================
 # 1. LOAD HIERARCHY
-# ============================================================================
-
 print("\n1. Loading hierarchy...")
-hierarchy = Hierarchy(SCRIPT_DIR / "00_hierarchies" / "morphological.json")
+hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
 
 print(f"   Parent nodes: {len(hierarchy.get_parent_nodes())}")
 print(f"   Leaf nodes:   {len(hierarchy.get_leaf_nodes())}")
-print(f"   Levels:       {hierarchy.max_level}")
+print(f"   Levels:       {hierarchy.max_level + 1}")  # +1 as 0-indexed
 
-# ============================================================================
 # 2. CREATE MODEL
-# ============================================================================
-
 print("\n2. Creating LCPN model...")
 model = LCPNModel(hierarchy=hierarchy, backbone="resnet18", pretrained=True, in_chans=1)
 
@@ -41,10 +37,7 @@ print(f"\n   Backbone parameters: {params['backbone']:,}")
 print(f"   Heads parameters:    {params['heads']:,}")
 print(f"   Total parameters:    {params['total']:,}")
 
-# ============================================================================
 # 3. TEST FORWARD PASS (RANDOM INPUT)
-# ============================================================================
-
 print("\n3. Testing forward pass with random input...")
 batch_size = 4
 random_images = torch.randn(batch_size, 1, 28, 28)
@@ -57,17 +50,14 @@ print("\n   Output shapes:")
 for node_name, logits in outputs.items():
     print(f"      {node_name:20s}: {logits.shape}")
 
-# ============================================================================
 # 4. TEST GREEDY PREDICTION (RANDOM INPUT)
-# ============================================================================
-
 print("\n4. Testing greedy prediction...")
 predictions, paths = model.predict_greedy(random_images)
 
 print(f"   Number of predictions: {len(predictions)}")
 print("\n   Predictions:")
 for i, (pred, path) in enumerate(zip(predictions, paths)):
-    print(f"      Image {i}: {pred:5s}  (path: {' → '.join(path)})")
+    print(f"      Image {i}: {pred:5s}  (path: {' -> '.join(path)})")
 
 print("\n5. Testing probability prediction...")
 probs_structured = model.predict_probabilities(random_images)
@@ -76,7 +66,7 @@ print(f"   Number of parent nodes: {len(probs_structured['parents'])}")
 print(f"   Number of leaf nodes: {len(probs_structured['leaves'])}")
 
 print("\n   Parent node probabilities (first sample):")
-for parent in list(probs_structured["parents"].keys())[:3]:  # Show first 3
+for parent in list(probs_structured["parents"].keys()):
     print(f"      {parent:20s}: {probs_structured['parents'][parent][0]}")
 
 print("\n   Leaf node probabilities (top 5 for first sample):")
@@ -91,13 +81,10 @@ for leaf, prob in leaf_probs[:5]:
 total_leaf_prob = sum(prob[0].item() for prob in probs_structured["leaves"].values())
 print(f"\n   Sum of all leaf probabilities: {total_leaf_prob:.6f}")
 print(
-    f"   {'✓ Valid probability distribution!' if abs(total_leaf_prob - 1.0) < 1e-5 else '✗ ERROR: Does not sum to 1!'}"
+    f"   {'Valid probability distribution!' if abs(total_leaf_prob - 1.0) < 1e-5 else 'ERROR: Does not sum to 1!'}"
 )
 
-# ============================================================================
 # 6. TEST WITH REAL EMNIST DATA
-# ============================================================================
-
 print("\n6. Testing with real EMNIST data...")
 
 # Create mapping
@@ -170,11 +157,7 @@ leaf_index_to_name = {
 transform = transforms.Compose([transforms.ToTensor()])
 
 base_dataset = datasets.EMNIST(
-    root=SCRIPT_DIR / "00_raw_data",
-    split="byclass",
-    train=True,
-    download=True,
-    transform=transform,
+    root=DATA_DIR, split="byclass", train=True, download=True, transform=transform
 )
 
 # Wrap with hierarchical labels
@@ -185,8 +168,9 @@ hierarchical_dataset = LCPNDataset(
 )
 
 # Create dataloader
+collator = LCPNCollator(hierarchy)
 dataloader = DataLoader(
-    hierarchical_dataset, batch_size=8, shuffle=True, collate_fn=LCPNCollator(hierarchy)
+    hierarchical_dataset, batch_size=8, shuffle=True, collate_fn=collator
 )
 
 # Get one batch
@@ -201,15 +185,23 @@ with torch.no_grad():
 
 print("   Forward pass successful!")
 print("\n   Output shapes:")
-for node_name, logits in list(outputs.items())[:3]:  # Show first 3
+for node_name, logits in list(outputs.items()):
     print(f"      {node_name:20s}: {logits.shape}")
 
 # Greedy predictions on real data
 predictions, paths = model.predict_greedy(images)
 
-print("\n   Greedy predictions (first 4 samples):")
+print("\n   Greedy predictions vs ground truth (first 4 samples):")
 for i in range(min(4, len(predictions))):
-    print(f"      Image {i}: {predictions[i]:5s}  (path: {' → '.join(paths[i])})")
+    # Unbatch to get true path
+    true_path = collator.unbatch(labels, i)
+    true_leaf = true_path[-1]
+
+    # Compare
+    match = "CORRECT" if predictions[i] == true_leaf else "WRONG"
+    print(f"      {match} Pred: {predictions[i]:5s} | True: {true_leaf:5s}")
+    print(f"         True path: {' -> '.join(true_path)}")
+    print(f"         Pred path: {' -> '.join(paths[i])}")
 
 # Probability predictions on real data
 probs_structured = model.predict_probabilities(images)
@@ -222,40 +214,3 @@ leaf_probs = [
 leaf_probs.sort(key=lambda x: x[1], reverse=True)
 for leaf, prob in leaf_probs[:5]:
     print(f"         {leaf:5s}: {prob:.6f}")
-
-# ============================================================================
-# 7. TEST CONSISTENCY
-# ============================================================================
-
-print("\n7. Testing consistency between greedy and probabilities...")
-
-# Greedy prediction should match highest probability leaf
-greedy_pred = predictions[0]
-highest_prob_leaf = max(
-    probs_structured["leaves"].keys(),
-    key=lambda leaf: probs_structured["leaves"][leaf][0].item(),
-)
-
-print(f"   Greedy prediction:       {greedy_pred}")
-print(f"   Highest probability leaf: {highest_prob_leaf}")
-print(
-    f"   {'✓ Consistent!' if greedy_pred == highest_prob_leaf else '✗ INCONSISTENT!'}"
-)
-
-# ============================================================================
-# SUMMARY
-# ============================================================================
-
-print("\n" + "=" * 80)
-print("TEST SUMMARY")
-print("=" * 80)
-print("✓ Model creation")
-print("✓ Forward pass (random input)")
-print("✓ Greedy prediction (random input)")
-print("✓ Probability prediction (random input)")
-print("✓ Forward pass (real EMNIST data)")
-print("✓ Greedy prediction (real data)")
-print("✓ Probability prediction (real data)")
-print("✓ Consistency check")
-print("\nAll tests passed!")
-print("=" * 80)

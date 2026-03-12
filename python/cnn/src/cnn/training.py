@@ -13,6 +13,8 @@ from .metrics import (
     print_metrics,
 )
 
+# TODO: Move all of this functionality w/n the appropriate Model class.
+
 # This is loosely based on the implementation in:
 # https://www.leoniemonigatti.com/blog/pytorch-image-classification.html
 # https://github.com/Tony-Y/pytorch_warmup/blob/master/examples/emnist/main.py

@@ -137,12 +137,13 @@ class Hierarchy:
     def node_is_parent(self, node_name):
         return node_name in self.parents
 
-    def num_child_nodes(self, parent_name):
+    def num_children(self, parent_name):
         return len(self.parent_to_children[parent_name])
 
     def num_level_nodes(self, level):
         return len(self.node_to_level[level])
 
+    # TODO: Maybe this is `print_tree` and there's also a `print_levels` and `print_leaves`
     def print_hierarchy(self, node=None, prefix="", is_last=True, show_level=True):
         """Print hierarchy as a tree (recursive)"""
         if node is None:

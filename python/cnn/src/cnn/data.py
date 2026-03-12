@@ -1,5 +1,3 @@
-# cnn/data.py
-
 import torch
 from torch.utils.data import Dataset
 from typing import Dict, Tuple, List
@@ -7,8 +5,52 @@ from typing import Dict, Tuple, List
 from .hierarchy import Hierarchy
 
 # TODO:
-# - LCLDataset
-# - LCLCollator
+# - LCLDataset, LCLCollator (multi classifier per level)
+# - LCNDataset, LCNCollator (binary classifier per node)
+#
+# This is a long-term nice-to-have. You'll want to think about shared
+# functionality between these approaches. For example, constructing the
+# batch tensor dict in Collator __call__ is quite similar between these.
+# They only differ in *which* nodes have an associated classifier.
+#
+# Consider a HierarchicalCollator abstract/base class, and similar for
+# Flat vs. LCL vs. LCN vs. LCPN. We can abstract-away the specific node-to-child
+# relationships, for example:
+# - Instead of get_parent_nodes() to find LCPN classifiers, create generics:
+#   - get_classifier_nodes() : Return all nodes with a classifier, root for `Flat`, parents for `LCPN`
+#   - get_classifier_node_class_nodes(node) : Return the nodes *classified* by this node, leaves for `Flat`, children for `LCPN`
+#   - get_classifier_node_class_node_index(classifier_node, class_node) : Think of better names, but you get the idea
+#
+# Potentially, put this in a `Hierarchy` wrapper. `Hierarchy` is responsible
+# for managing a generic tree structure, `LCPNHierarchy` is responsible for
+# LCPN-specific accessors (e.g. `get_classifier_nodes()` gets parents-nodes).
+
+# TODO: One view that I would like is a "classifier-view" dictionary, which maps
+# each classifier (head) to all of it's classes as a { label : index } dictionary.
+# classifier_dict -> {
+#  root : { round : 0, straight : 1 },
+#  round : { O : 0, C : 1, Q : 2},
+#  straight : { 1 : 0, L : 1, l : 2, I : 3 }
+# }
+#
+# The leaf dictionary is similar, for "Q":
+# leaf_dict -> {
+#   root : round,
+#   round : O,
+#   straight : None # Or some sentinel
+# }
+#
+# To get the indices of a leaf for the batched tensor:
+#
+# for leaf_classifier, leaf_class in leaf_dict:
+#   classifier = classifier_dict[leaf_classifier]
+#   if leaf_class is None:
+#      class_index = -1 # Sentinel, this leaf has no class in the `classifer`
+#   else:
+#      class_index = classifier[leaf_class]
+#
+# Using this terminology, `leaf_index_to_name` is actually the `flat_classifier_dict`,
+# with an implied `root` key: { root : { A : 0, B : 1, C : 2, ...} }.
 
 
 class LCPNDataset(Dataset):
@@ -147,7 +189,7 @@ class LCPNCollator:
         # tensor of labels for each parent-node. If this batch is {i, L}, then:
         # batch_labels = {
         #   root : tensor([1, 1]),    # Index of `long` class in `root` classifier
-        # .  round : tensor([-1, -1]), # Missing sentinel, since i, L aren't in `round`
+        #   round : tensor([-1, -1]), # Missing sentinel, since i, L aren't in `round`
         #   long : tensor([2, 1])     # Index of `i`, `L` in `long` classifier
         # }
         batch_labels = {}
@@ -165,3 +207,61 @@ class LCPNCollator:
             )
 
         return images, batch_labels
+
+    def unbatch(self, batch_labels: Dict[str, torch.Tensor], index: int) -> List[str]:
+        """
+        Extract path for a single sample from batched labels
+
+        Args:
+            batch_labels: Batched labels dict from __call__
+                        {node_name: tensor of shape (batch_size,)}
+            index: Index of sample to extract
+
+        Returns:
+            Path from root to leaf as list of node names
+            e.g., ['root', 'straight', 'angular', 'A']
+        """
+        # Extract sample labels (only on-path nodes)
+        sample_labels = {}
+        for node_name, batch_tensor in batch_labels.items():
+            label_value = batch_tensor[index].item()
+            if label_value != -1:  # Only include on-path nodes
+                sample_labels[node_name] = label_value
+
+        # Build path from root to leaf
+        path = [self.hierarchy.root]
+        current_node = self.hierarchy.root
+
+        while current_node in self.hierarchy.parent_to_children:
+            # Check if we have a label for this node
+            if current_node not in sample_labels:
+                break  # Reached end of path
+
+            # Get child index and name
+            child_idx = sample_labels[current_node]
+            children = self.hierarchy.parent_to_children[current_node]
+            child_node = children[child_idx]
+
+            # Add to path and continue
+            path.append(child_node)
+            current_node = child_node
+
+        return path
+
+    def unbatch_all(self, batch_labels: Dict[str, torch.Tensor]) -> List[List[str]]:
+        """
+        Extract paths for all samples from batched labels
+
+        Args:
+            batch_labels: Batched labels dict from __call__
+
+        Returns:
+            List of paths (one per sample)
+            e.g., [
+                ['root', 'curved', 'open_curve', 'C'],
+                ['root', 'straight', 'vertical', 'I'],
+                ...
+            ]
+        """
+        batch_size = next(iter(batch_labels.values())).shape[0]
+        return [self.unbatch(batch_labels, i) for i in range(batch_size)]
