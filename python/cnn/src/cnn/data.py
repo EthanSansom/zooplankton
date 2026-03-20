@@ -1,56 +1,87 @@
 import torch
 from torch.utils.data import Dataset
-from typing import Dict, Tuple, List
+from PIL import Image
 
 from .hierarchy import Hierarchy
 
-# TODO:
-# - LCLDataset, LCLCollator (multi classifier per level)
-# - LCNDataset, LCNCollator (binary classifier per node)
-#
-# This is a long-term nice-to-have. You'll want to think about shared
-# functionality between these approaches. For example, constructing the
-# batch tensor dict in Collator __call__ is quite similar between these.
-# They only differ in *which* nodes have an associated classifier.
-#
-# Consider a HierarchicalCollator abstract/base class, and similar for
-# Flat vs. LCL vs. LCN vs. LCPN. We can abstract-away the specific node-to-child
-# relationships, for example:
-# - Instead of get_parent_nodes() to find LCPN classifiers, create generics:
-#   - get_classifier_nodes() : Return all nodes with a classifier, root for `Flat`, parents for `LCPN`
-#   - get_classifier_node_class_nodes(node) : Return the nodes *classified* by this node, leaves for `Flat`, children for `LCPN`
-#   - get_classifier_node_class_node_index(classifier_node, class_node) : Think of better names, but you get the idea
-#
-# Potentially, put this in a `Hierarchy` wrapper. `Hierarchy` is responsible
-# for managing a generic tree structure, `LCPNHierarchy` is responsible for
-# LCPN-specific accessors (e.g. `get_classifier_nodes()` gets parents-nodes).
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
-# TODO: One view that I would like is a "classifier-view" dictionary, which maps
-# each classifier (head) to all of it's classes as a { label : index } dictionary.
-# classifier_dict -> {
-#  root : { round : 0, straight : 1 },
-#  round : { O : 0, C : 1, Q : 2},
-#  straight : { 1 : 0, L : 1, l : 2, I : 3 }
-# }
-#
-# The leaf dictionary is similar, for "Q":
-# leaf_dict -> {
-#   root : round,
-#   round : O,
-#   straight : None # Or some sentinel
-# }
-#
-# To get the indices of a leaf for the batched tensor:
-#
-# for leaf_classifier, leaf_class in leaf_dict:
-#   classifier = classifier_dict[leaf_classifier]
-#   if leaf_class is None:
-#      class_index = -1 # Sentinel, this leaf has no class in the `classifer`
-#   else:
-#      class_index = classifier[leaf_class]
-#
-# Using this terminology, `leaf_index_to_name` is actually the `flat_classifier_dict`,
-# with an implied `root` key: { root : { A : 0, B : 1, C : 2, ...} }.
+
+class ImageDataset(Dataset):
+    """
+    Dataset for loading .tif images from a flat directory structure:
+
+        root/
+            class_a/image1.tif
+            class_a/image2.tif
+            class_b/image1.tif
+            ...
+
+    Note that images are converted to greyscale on load in __getitem__.
+
+    Args:
+        root:            Path to the root directory containing class subdirectories
+        transform:       Optional transforms applied to each image
+        class_to_index:  Optional mapping of class name to integer label. If None,
+                         classes are assigned indices alphabetically.
+    """
+
+    def __init__(
+        self,
+        root: Path,
+        transform: Optional[Callable] = None,
+        class_to_index: Optional[Dict[str, int]] = None,
+        class_to_nmax: Optional[Union[Dict[str, int], int]] = None,
+    ):
+        self.root = Path(root)
+        self.transform = transform
+
+        class_dirs = sorted(p for p in self.root.iterdir() if p.is_dir())
+
+        if class_to_index is None:
+            self.class_to_index = {d.name: i for i, d in enumerate(class_dirs)}
+        else:
+            self.class_to_index = class_to_index
+
+        self.image_paths: List[Path] = []
+        self.labels: List[int] = []
+
+        for class_dir in class_dirs:
+            if class_dir.name not in self.class_to_index:
+                continue
+
+            label = self.class_to_index[class_dir.name]
+            image_paths = sorted(class_dir.glob("*.tif"))
+
+            if isinstance(class_to_nmax, int):
+                image_paths = image_paths[:class_to_nmax]
+            elif isinstance(class_to_nmax, dict) and class_dir.name in class_to_nmax:
+                image_paths = image_paths[: class_to_nmax[class_dir.name]]
+
+            for image_path in image_paths:
+                self.image_paths.append(image_path)
+                self.labels.append(label)
+
+    def __len__(self) -> int:
+        return len(self.image_paths)
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
+        # `.convert("L")` converts to greyscale, which is appropriate for Zooplankton:
+        # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert
+        image = Image.open(self.image_paths[index]).convert("L")
+        if self.transform:
+            image = self.transform(image)
+        return image, self.labels[index]
+
+    def __repr__(self) -> str:
+        return (
+            f"ImageDataset(\n"
+            f"  root={self.root},\n"
+            f"  n_samples={len(self)},\n"
+            f"  n_classes={len(self.class_to_index)},\n"
+            f")"
+        )
 
 
 class LCPNDataset(Dataset):
