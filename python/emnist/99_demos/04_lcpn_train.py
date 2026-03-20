@@ -1,6 +1,6 @@
 from cnn.config import Config
 from cnn.hierarchy import Hierarchy
-from cnn.models.hierarchical import LCPNModel
+from cnn.models.lcpn import LCPNModel
 from cnn.data import LCPNDataset, LCPNCollator
 from cnn.utils import set_seed, split
 
@@ -9,13 +9,18 @@ from torchvision import datasets, transforms
 import numpy as np
 from pathlib import Path
 
-# Setup ------------------------------------------------------------------------
+# User Settings ----------------------------------------------------------------
 
-CONFIG_FILE = "lcpn.toml"
+CONFIG_FILE = "demo_lcpn.toml"
+MODEL_NAME = "demo_lcpn"
+
+# Configuration ----------------------------------------------------------------
+
 SCRIPT_DIR = Path(__file__).parent
 BASE_DIR = SCRIPT_DIR.parent
 HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
 DATA_DIR = BASE_DIR / "00_raw_data"
+SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
 hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
@@ -68,7 +73,7 @@ leaf_index_to_name = {
     6: "6",
     7: "7",
     8: "8",
-    9: "9",
+    9: "9",  # fmt: skip
     10: "A",
     11: "B",
     12: "C",
@@ -94,7 +99,7 @@ leaf_index_to_name = {
     32: "W",
     33: "X",
     34: "Y",
-    35: "Z",
+    35: "Z",  # fmt: skip
     36: "a",
     37: "b",
     38: "c",
@@ -120,7 +125,7 @@ leaf_index_to_name = {
     58: "w",
     59: "x",
     60: "y",
-    61: "z",
+    61: "z",  # fmt: skip
 }
 
 train_data = LCPNDataset(train_data, hierarchy, leaf_index_to_name)
@@ -151,15 +156,41 @@ valid_loader = DataLoader(
 
 # Train ------------------------------------------------------------------------
 
-model = LCPNModel(
-    hierarchy=hierarchy,
-    config=cfg,
-    pretrained=True,
-    in_chans=1,
-).to(cfg.metadata.device)
+model = LCPNModel(MODEL_NAME, SAVE_DIR, hierarchy=hierarchy, config=cfg).to(
+    cfg.metadata.device
+)
 
+print("\nModel:")
 print(model)
 
 history = model.fit(train_loader, valid_loader, collator)
 
+print("\nModel history:")
 print(history)
+
+# Save ------------------------------------------------------------------------
+
+print("\nSaving model...")
+save_dir = model.save()
+
+# Load ------------------------------------------------------------------------
+
+print("\nLoading model...")
+loaded_model = LCPNModel.load(save_dir)
+loaded_model = loaded_model.to(cfg.metadata.device)
+
+print(f"Loaded: {loaded_model}")
+print(f"Epochs completed: {loaded_model.history['epochs_completed']}")
+print(f"Duration: {loaded_model.history['duration_seconds']:.1f}s")
+print(f"Backbone: {loaded_model.model_metadata['backbone']}")
+
+# Verify weights loaded correctly by comparing validation accuracy
+print("\nVerifying loaded model...")
+loaded_metrics, _, _ = loaded_model.evaluate(valid_loader, collator)
+original_metrics = model.history["valid"][-1]
+
+print(f"  Original final val accuracy: {original_metrics['accuracy']:.4f}")
+print(f"  Loaded   final val accuracy: {loaded_metrics['accuracy']:.4f}")
+print(
+    f"  {'OK - weights match.' if abs(loaded_metrics['accuracy'] - original_metrics['accuracy']) < 1e-4 else 'WARNING - accuracy mismatch, weights may not have loaded correctly.'}"
+)

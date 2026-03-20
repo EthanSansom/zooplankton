@@ -1,6 +1,10 @@
 import time
 from typing import Dict, List, Optional, Tuple
 
+import json
+from datetime import datetime
+from pathlib import Path
+
 import timm
 import torch
 import torch.nn as nn
@@ -24,10 +28,10 @@ class LCPNModel(nn.Module):
 
     def __init__(
         self,
+        name: str,
+        directory: Path,
         hierarchy: Hierarchy,
         config: Config,
-        pretrained: bool = True,
-        in_chans: int = 1,
     ):
         """
         Initialize LCPN model
@@ -35,20 +39,20 @@ class LCPNModel(nn.Module):
         Args:
             hierarchy: Hierarchy object defining the structure
             config: Config object (uses config.model.backbone)
-            pretrained: Whether to use pretrained weights
-            in_chans: Number of input channels (1 for grayscale)
         """
         super().__init__()
 
+        self.name = name
+        self.directory = Path(directory)
         self.hierarchy = hierarchy
         self.config = config
         self.backbone_name = config.model.backbone
 
         self.backbone = timm.create_model(
             self.backbone_name,
-            pretrained=pretrained,
+            pretrained=config.model.pretrained,
             num_classes=0,  # Remove classification head
-            in_chans=in_chans,
+            in_chans=config.model.in_chans,
         )
         self.feature_dim = self.backbone.num_features
 
@@ -57,6 +61,23 @@ class LCPNModel(nn.Module):
         for parent_node in hierarchy.get_parent_nodes():
             n_classes = hierarchy.num_children(parent_node)
             self.heads[parent_node] = nn.Linear(self.feature_dim, n_classes)
+
+        # Empty training history, overwritten by `fit()`
+        self.history = {
+            "train": [],
+            "valid": [],
+            "start_time": None,
+            "end_time": None,
+            "duration_seconds": None,
+            "epochs_completed": None,
+        }
+        self.model_metadata = {
+            "name": self.name,
+            "backbone": self.backbone_name,
+            "feature_dim": self.feature_dim,
+            "n_heads": len(self.heads),
+            "n_parameters": self.get_num_parameters(),
+        }
 
     # foward -------------------------------------------------------------------
 
@@ -123,6 +144,42 @@ class LCPNModel(nn.Module):
                 paths.append(path)
 
         return predictions, paths
+
+    def predict_greedy_fast(
+        self,
+        x: torch.Tensor,
+        outputs: Optional[Dict[str, torch.Tensor]] = None,
+    ) -> List[str]:
+        """
+        Greedy top-down prediction: follow argmax at each level.
+        Faster variant of predict_greedy() that omits path tracking, used
+        during validation in `evaluate()`.
+        """
+        with torch.no_grad():
+            if outputs is None:
+                outputs = self.forward(x)
+
+            predictions = []
+
+            for i in range(x.shape[0]):
+                current_node = self.hierarchy.root
+
+                while current_node in self.hierarchy.parent_to_children:
+                    logits = outputs[current_node][i]
+                    pred_index = torch.argmax(logits).item()
+                    children = self.hierarchy.parent_to_children[current_node]
+
+                    if pred_index >= len(children):
+                        raise ValueError(
+                            f"Predicted index {pred_index} exceeds the number "
+                            f"of child classes {len(children)}."
+                        )
+
+                    current_node = children[pred_index]
+
+                predictions.append(current_node)
+
+        return predictions
 
     def predict_global(
         self,
@@ -243,7 +300,7 @@ class LCPNModel(nn.Module):
         self.eval()
         device = self.config.metadata.device
         total_loss = 0.0
-        all_preds_greedy, all_preds_global, all_true = [], [], []
+        all_preds, all_true = [], []
 
         with torch.no_grad():
             for inputs, labels in tqdm(loader, desc=desc, leave=False):
@@ -253,25 +310,19 @@ class LCPNModel(nn.Module):
                 outputs = self.forward(inputs)
                 total_loss += self.compute_loss(outputs, labels, criterion).item()
 
-                preds_greedy, _ = self.predict_greedy(inputs, outputs=outputs)
-                preds_global, _ = self.predict_global(inputs, outputs=outputs)
+                preds_greedy = self.predict_greedy_fast(inputs, outputs=outputs)
                 true = collator.uncollate_label_leaves(labels)
-                all_preds_greedy.extend(preds_greedy)
-                all_preds_global.extend(preds_global)
+                all_preds.extend(preds_greedy)
                 all_true.extend(true)
 
-        n = len(all_preds_greedy)
+        n = len(all_preds)
         metrics = {
             "loss": total_loss / len(loader),
-            "accuracy_greedy": sum(p == t for p, t in zip(all_preds_greedy, all_true))
-            / n,
-            "accuracy_global": sum(p == t for p, t in zip(all_preds_global, all_true))
-            / n,
+            "accuracy": sum(p == t for p, t in zip(all_preds, all_true)) / n,
         }
         return (
             metrics,
-            all_preds_greedy if collect_predictions else None,
-            all_preds_global if collect_predictions else None,
+            all_preds if collect_predictions else None,
             all_true if collect_predictions else None,
         )
 
@@ -303,7 +354,14 @@ class LCPNModel(nn.Module):
                 eta_min=cfg.scheduler.learning_rate_min,
             )
 
-        history = {"train": [], "valid": [], "duration_seconds": None}
+        self.history = {
+            "train": [],
+            "valid": [],
+            "start_time": datetime.now().isoformat(),
+            "end_time": None,
+            "duration_seconds": None,
+            "epochs_completed": None,
+        }
         n_epochs = cfg.train.epochs
         start = time.time()
 
@@ -313,18 +371,87 @@ class LCPNModel(nn.Module):
 
             train_loss = self.train_epoch(train_loader, optimizer, criterion)
             scheduler.step()
-            history["train"].append({"loss": train_loss})
+            self.history["train"].append({"loss": train_loss})
             print(f"  Train: loss={train_loss:.4f}")
 
-            valid_metrics, _, _, _ = self.evaluate(valid_loader, collator, criterion)
-            history["valid"].append(valid_metrics)
+            valid_metrics, _, _ = self.evaluate(valid_loader, collator, criterion)
+            self.history["valid"].append(valid_metrics)
             print(
-                f"  Valid: loss={valid_metrics['loss']:.4f}, accuracy (greedy)={valid_metrics['accuracy_greedy']:.4f}, accuracy (global)={valid_metrics['accuracy_global']:.4f}"
+                f"  Valid: loss={valid_metrics['loss']:.4f}, accuracy={valid_metrics['accuracy']:.4f}"
             )
 
-        history["duration_seconds"] = time.time() - start
-        print(f"\nDone. ({history['duration_seconds']:.1f}s)")
-        return history
+        self.history["duration_seconds"] = time.time() - start
+        self.history["end_time"] = datetime.now().isoformat()
+        self.history["epochs_completed"] = len(self.history["train"])
+        print(f"\nDone. ({self.history['duration_seconds']:.1f}s)")
+        return self.history
+
+    # read / write -------------------------------------------------------------
+
+    def save(self) -> Path:
+        """
+        Save model weights, config, metadata, and optionally training history
+        to a new timestamped directory under self.directory.
+
+        Returns:
+            Path to the created save directory.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = self.directory / f"{self.name}_{timestamp}"
+        save_dir.mkdir(parents=True, exist_ok=False)
+
+        torch.save(self.state_dict(), save_dir / "weights.pth")
+        self.config.save(save_dir / "config.toml")
+        self.hierarchy.save(save_dir / "hierarchy.json")
+
+        with open(save_dir / "history.json", "w") as f:
+            json.dump(self.history, f, indent=2)
+
+        with open(save_dir / "model_metadata.json", "w") as f:
+            json.dump(self.model_metadata, f, indent=2)
+
+        print(f"Saved to {save_dir}")
+        return save_dir
+
+    @classmethod
+    def load(
+        cls,
+        directory: Path,
+    ) -> Tuple["LCPNModel", Dict, Optional[Dict]]:
+        """
+        Load a saved LCPNModel from a directory.
+
+        Args:
+            directory: Path to a save directory created by save()
+
+        Returns:
+            LCPNModel with weights loaded
+        """
+        load_dir = Path(directory)
+
+        config = Config(load_dir / "config.toml")
+        hierarchy = Hierarchy(load_dir / "hierarchy.json")
+
+        with open(load_dir / "model_metadata.json") as f:
+            model_metadata = json.load(f)
+
+        model = cls(
+            name=model_metadata["name"],
+            directory=load_dir.parent,
+            hierarchy=hierarchy,
+            config=config,
+        )
+
+        with open(load_dir / "history.json") as f:
+            model.history = json.load(f)
+
+        state_dict = torch.load(
+            load_dir / "weights.pth",
+            map_location=config.metadata.device,
+        )
+        model.load_state_dict(state_dict)
+
+        return model
 
     # helpers ------------------------------------------------------------------
 

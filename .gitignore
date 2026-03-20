@@ -5,4 +5,8 @@
 .DS_Store
 .quarto
 python/emnist/00_raw_data/**
+python/emnist/01_results/**
 python/zooplankton/00_raw_data/**
+python/zooplankton/01_results/**
+
+!**/.gitkeep
