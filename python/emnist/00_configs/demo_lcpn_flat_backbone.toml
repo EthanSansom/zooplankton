@@ -7,10 +7,10 @@ fraction = 0.2
 
 [model]
 backbone = "resnet18"
-backbone_model = ""
+backbone_model = "python/emnist/01_results/demo_flat"
 pretrained = false
 in_chans = 1
-freeze_backbone = false
+freeze_backbone = true
 
 [data]
 fraction = 0.1

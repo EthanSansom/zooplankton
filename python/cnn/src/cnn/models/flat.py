@@ -203,10 +203,14 @@ class FlatModel(nn.Module):
 
     # read / write -------------------------------------------------------------
 
-    def save(self) -> Path:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = self.directory / f"{self.name}_{timestamp}"
-        save_dir.mkdir(parents=True, exist_ok=False)
+    def save(self, timestamp: bool = True, overwrite: bool = False) -> Path:
+        if timestamp:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_dir = self.directory / f"{self.name}_{stamp}"
+        else:
+            save_dir = self.directory / self.name
+
+        save_dir.mkdir(parents=True, exist_ok=overwrite)
 
         torch.save(self.state_dict(), save_dir / "weights.pth")
         self.config.save(save_dir / "config.toml")

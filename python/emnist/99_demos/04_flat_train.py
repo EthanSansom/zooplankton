@@ -96,7 +96,7 @@ print(history)
 # Save -------------------------------------------------------------------------
 
 print("\nSaving model...")
-save_dir = model.save()
+save_dir = model.save(timestamp=False, overwrite=True)
 
 # Load -------------------------------------------------------------------------
 

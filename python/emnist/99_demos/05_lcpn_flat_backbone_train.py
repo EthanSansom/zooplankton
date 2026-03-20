@@ -1,18 +1,20 @@
 from cnn.config import Config
 from cnn.hierarchy import Hierarchy
+from cnn.models.flat import FlatModel
 from cnn.models.lcpn import LCPNModel
 from cnn.data import LCPNDataset, LCPNCollator
 from cnn.utils import set_seed, split
 
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
+import torch
 import numpy as np
 from pathlib import Path
 
 # User Settings ----------------------------------------------------------------
 
-CONFIG_FILE = "demo_lcpn.toml"
-MODEL_NAME = "demo_lcpn"
+CONFIG_FILE = "demo_lcpn_flat_backbone.toml"
+MODEL_NAME = "demo_lcpn_flat_backbone"
 
 # Configuration ----------------------------------------------------------------
 
@@ -24,6 +26,13 @@ SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
 hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
+FLAT_MODEL_DIR = Path(cfg.model.backbone_model)
+
+if not FLAT_MODEL_DIR.exists():
+    raise ValueError(
+        f"Directory {FLAT_MODEL_DIR} doesn't exist. "
+        "Run '99_demos/04_flat_train.py' to train a `FlatModel` backend."
+    )
 
 set_seed(cfg.train.seed)
 
@@ -154,7 +163,15 @@ valid_loader = DataLoader(
     collate_fn=collator,
 )
 
-# Train ------------------------------------------------------------------------
+# Verify flat model weights ----------------------------------------------------
+
+print("\nVerifying flat model weights...")
+flat_model = FlatModel.load(FLAT_MODEL_DIR).to(cfg.metadata.device)
+flat_backbone_state = {
+    k: v for k, v in flat_model.state_dict().items() if k.startswith("backbone.")
+}
+
+# Model ------------------------------------------------------------------------
 
 model = LCPNModel(MODEL_NAME, SAVE_DIR, hierarchy=hierarchy, config=cfg).to(
     cfg.metadata.device
@@ -163,17 +180,59 @@ model = LCPNModel(MODEL_NAME, SAVE_DIR, hierarchy=hierarchy, config=cfg).to(
 print("\nModel:")
 print(model)
 
+# Verify pre-trained weights loaded correctly ----------------------------------
+
+print("\nVerifying backbone weights match flat model...")
+lcpn_backbone_state = {
+    k: v for k, v in model.state_dict().items() if k.startswith("backbone.")
+}
+
+all_match = all(
+    torch.allclose(flat_backbone_state[k], lcpn_backbone_state[k])
+    for k in lcpn_backbone_state
+)
+print(
+    f"  {'OK - backbone weights match flat model.' if all_match else 'WARNING - backbone weights do not match flat model.'}"
+)
+
+# Verify backbone is frozen ----------------------------------------------------
+
+print("\nVerifying backbone is frozen...")
+assert model.backbone_is_frozen(), "ERROR - backbone is not frozen."
+print("  OK - backbone is frozen.")
+
+n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+n_frozen = sum(p.numel() for p in model.backbone.parameters())
+n_heads = sum(p.numel() for p in model.heads.parameters())
+print(f"  Frozen parameters:   {n_frozen:,} (backbone)")
+print(f"  Trainable parameters: {n_trainable:,} (heads only, expected {n_heads:,})")
+assert n_trainable == n_heads, "ERROR - trainable parameters include backbone weights."
+print("  OK - only head parameters are trainable.")
+
+# Train ------------------------------------------------------------------------
+
 history = model.fit(train_loader, valid_loader, collator)
 
-print("\nModel history:")
-print(history)
+# Verify backbone weights unchanged after training -----------------------------
 
-# Save ------------------------------------------------------------------------
+print("\nVerifying backbone weights unchanged after training...")
+lcpn_backbone_state_after = {
+    k: v for k, v in model.state_dict().items() if k.startswith("backbone.")
+}
+still_match = all(
+    torch.allclose(flat_backbone_state[k], lcpn_backbone_state_after[k])
+    for k in lcpn_backbone_state_after
+)
+print(
+    f"  {'OK - backbone weights unchanged by training.' if still_match else 'WARNING - backbone weights changed during training, freeze may not have worked.'}"
+)
+
+# Save -------------------------------------------------------------------------
 
 print("\nSaving model...")
 save_dir = model.save(timestamp=False, overwrite=True)
 
-# Load ------------------------------------------------------------------------
+# Load -------------------------------------------------------------------------
 
 print("\nLoading model...")
 loaded_model = LCPNModel.load(save_dir)
@@ -182,9 +241,8 @@ loaded_model = loaded_model.to(cfg.metadata.device)
 print(f"Loaded: {loaded_model}")
 print(f"Epochs completed: {loaded_model.history['epochs_completed']}")
 print(f"Duration: {loaded_model.history['duration_seconds']:.1f}s")
-print(f"Backbone: {loaded_model.model_metadata['backbone']}")
 
-# Verify weights loaded correctly by comparing validation accuracy
+# Verify weights loaded correctly
 print("\nVerifying loaded model...")
 loaded_metrics, _, _ = loaded_model.evaluate(valid_loader, collator)
 original_metrics = model.history["valid"][-1]

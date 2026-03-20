@@ -1,4 +1,5 @@
 import time
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import json
@@ -56,6 +57,19 @@ class LCPNModel(nn.Module):
         )
         self.feature_dim = self.backbone.num_features
 
+        if config.model.backbone_model:
+            self._load_backbone_weights(Path(config.model.backbone_model))
+
+        if config.model.freeze_backbone:
+            self.freeze_backbone()
+
+        if config.model.backbone_model and config.model.pretrained:
+            warnings.warn(
+                "backbone_model is set, so pretrained=True has no effect, "
+                "timm weights will be overwritten by the provided model weights.",
+                UserWarning,
+            )
+
         # Create one classification head per parent node
         self.heads = nn.ModuleDict()
         for parent_node in hierarchy.get_parent_nodes():
@@ -102,6 +116,20 @@ class LCPNModel(nn.Module):
         return {node_name: head(features) for node_name, head in self.heads.items()}
 
     # inference ----------------------------------------------------------------
+
+    def freeze_backbone(self) -> None:
+        """Freeze all backbone parameters."""
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+    def unfreeze_backbone(self) -> None:
+        """Unfreeze all backbone parameters."""
+        for param in self.backbone.parameters():
+            param.requires_grad = True
+
+    def backbone_is_frozen(self) -> bool:
+        """Return True if backbone parameters are frozen."""
+        return not next(self.backbone.parameters()).requires_grad
 
     def predict_greedy(
         self,
@@ -326,6 +354,27 @@ class LCPNModel(nn.Module):
             all_true if collect_predictions else None,
         )
 
+    def _load_backbone_weights(self, path: Path) -> None:
+        """Load backbone weights from a saved FlatModel directory."""
+        with open(path / "model_metadata.json") as f:
+            flat_metadata = json.load(f)
+
+        if flat_metadata["backbone"] != self.backbone_name:
+            raise ValueError(
+                f"Backbone mismatch: config specifies '{self.backbone_name}' "
+                f"but backbone_weights were trained with '{flat_metadata['backbone']}'."
+            )
+
+        state = torch.load(
+            path / "weights.pth", map_location=self.config.metadata.device
+        )
+        backbone_state = {
+            k.replace("backbone.", ""): v
+            for k, v in state.items()
+            if k.startswith("backbone.")
+        }
+        self.backbone.load_state_dict(backbone_state)
+
     # fit ----------------------------------------------------------------------
 
     def fit(
@@ -342,11 +391,17 @@ class LCPNModel(nn.Module):
         cfg = self.config
 
         if optimizer is None:
+            params = (
+                self.heads.parameters()
+                if self.backbone_is_frozen()
+                else self.parameters()
+            )
             optimizer = torch.optim.Adam(
-                self.parameters(),
+                params,
                 lr=cfg.optimizer.learning_rate,
                 weight_decay=0,
             )
+
         if scheduler is None:
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
@@ -388,7 +443,7 @@ class LCPNModel(nn.Module):
 
     # read / write -------------------------------------------------------------
 
-    def save(self) -> Path:
+    def save(self, timestamp: bool = True, overwrite: bool = False) -> Path:
         """
         Save model weights, config, metadata, and optionally training history
         to a new timestamped directory under self.directory.
@@ -396,9 +451,13 @@ class LCPNModel(nn.Module):
         Returns:
             Path to the created save directory.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = self.directory / f"{self.name}_{timestamp}"
-        save_dir.mkdir(parents=True, exist_ok=False)
+        if timestamp:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_dir = self.directory / f"{self.name}_{stamp}"
+        else:
+            save_dir = self.directory / self.name
+
+        save_dir.mkdir(parents=True, exist_ok=overwrite)
 
         torch.save(self.state_dict(), save_dir / "weights.pth")
         self.config.save(save_dir / "config.toml")
