@@ -2,10 +2,12 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 
-from .hierarchy import Hierarchy
-
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
+
+from .hierarchy import Hierarchy
+
+# ImageDataset -----------------------------------------------------------------
 
 
 class ImageDataset(Dataset):
@@ -84,6 +86,9 @@ class ImageDataset(Dataset):
         )
 
 
+# LCPNDataset ------------------------------------------------------------------
+
+
 class LCPNDataset(Dataset):
     """
     Wraps a flat dataset to produce hierarchical labels for an input dataset
@@ -93,12 +98,11 @@ class LCPNDataset(Dataset):
     (image, hierarchical_labels_dict) based on hierarchy structure.
     """
 
-    # TODO: Maybe an alternative `label_to_name` which maps strings?
     def __init__(
         self,
         base_dataset: Dataset,
         hierarchy: Hierarchy,
-        leaf_index_to_name: Dict[int, str],
+        node_index_to_name: Dict[int, str],
     ):
         """
         Args:
@@ -109,12 +113,12 @@ class LCPNDataset(Dataset):
         """
         self.base_dataset = base_dataset
         self.hierarchy = hierarchy
-        self.leaf_index_to_name = leaf_index_to_name
+        self.node_index_to_name = node_index_to_name
 
-        for leaf_name in leaf_index_to_name.values():
-            if leaf_name not in hierarchy.leaves:
+        for node_name in node_index_to_name.values():
+            if node_name not in hierarchy.nodes:
                 raise ValueError(
-                    f"Leaf '{leaf_name}' in leaf_index_to_name not found in hierarchy leaves"
+                    f"Node '{node_name}' in `node_index_to_name` not found in `hierarchy.nodes`."
                 )
 
         self._compute_labels()
@@ -123,26 +127,25 @@ class LCPNDataset(Dataset):
         """
         Compute hierarchical labels for each leaf class index
 
-        Creates mapping: leaf_index -> {
+        Creates mapping: node_index -> {
             parent_node_name: child_index,
             child_node_name: grandchild_index,
             ...
         }
         """
-        self.leaf_index_to_labels = {}
+        self.node_index_to_labels = {}
 
-        for leaf_index, leaf_name in self.leaf_index_to_name.items():
-            path = self.hierarchy.get_path_to_root(leaf_name)
+        for node_index, node_name in self.node_index_to_name.items():
+            path = self.hierarchy.get_path_to_root(node_name)
 
             labels = {}
             for i in range(len(path) - 1):
                 parent = path[i]
                 child = path[i + 1]
-
                 child_index = self.hierarchy.get_child_index(parent, child)
                 labels[parent] = child_index
 
-            self.leaf_index_to_labels[leaf_index] = labels
+            self.node_index_to_labels[node_index] = labels
 
     def __len__(self) -> int:
         return len(self.base_dataset)
@@ -157,14 +160,12 @@ class LCPNDataset(Dataset):
         Returns:
             image: Image tensor
             labels: Dict mapping parent node names to child class indices
-                    Only includes nodes on the path from root to leaf
+                    Only includes nodes on the path from root to the node
         """
         # Get image and flat label from base dataset
-        image, leaf_class_index = self.base_dataset[index]
+        image, node_class_index = self.base_dataset[index]
 
-        # Get pre-computed hierarchical labels
-        hierarchical_labels = self.leaf_index_to_labels[leaf_class_index]
-
+        hierarchical_labels = self.node_index_to_labels[node_class_index]
         return image, hierarchical_labels
 
 
@@ -284,15 +285,7 @@ class LCPNCollator:
     def uncollate_label_leaf(
         self, batch_labels: Dict[str, torch.Tensor], index: int
     ) -> str:
-        """
-        Extract a leaf class for a sample in the batched labels
-
-        Args:
-            batch_labels: Batched labels dict from __call__
-
-        Returns:
-            A leaf class, e.g. 'C'
-        """
+        """Extract the true label for a single sample from batched labels."""
         return self.uncollate_label_path(batch_labels, index)[-1]
 
     def uncollate_label_paths(
@@ -317,14 +310,15 @@ class LCPNCollator:
 
     def uncollate_label_leaves(
         self, batch_labels: Dict[str, torch.Tensor]
-    ) -> List[str]:
+    ) -> Tuple[List[str], List[bool]]:
         """
-        Extract leaf classes for all samples from batched labels
-
-        Args:
-            batch_labels: Batched labels dict from __call__
+        Extract true labels for all samples from batched labels.
 
         Returns:
-            List of leaf classes (one per sample), e.g. ['C', 'I', ...]
+            leaves:  True label per sample (leaf node or internal node if partially labelled)
+            is_leaf: True if the sample is fully labelled to a leaf node
         """
-        return [path[-1] for path in self.uncollate_label_paths(batch_labels)]
+        paths = self.uncollate_label_paths(batch_labels)
+        leaves = [path[-1] for path in paths]
+        is_leaf = [self.hierarchy.node_is_leaf(leaf) for leaf in leaves]
+        return leaves, is_leaf

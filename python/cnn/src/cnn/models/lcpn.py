@@ -338,10 +338,15 @@ class LCPNModel(nn.Module):
                 outputs = self.forward(inputs)
                 total_loss += self.compute_loss(outputs, labels, criterion).item()
 
-                preds_greedy = self.predict_greedy_fast(inputs, outputs=outputs)
-                true = collator.uncollate_label_leaves(labels)
-                all_preds.extend(preds_greedy)
-                all_true.extend(true)
+                preds = self.predict_greedy_fast(inputs, outputs=outputs)
+                true, is_leaf = collator.uncollate_label_leaves(labels)
+
+                # predict_greedy_fast() will always return a leaf node prediction,
+                # however some input samples may be partially labeled (i.e. have
+                # no "leaf" class). These partially labelled samples are excluded
+                # from evaluation.
+                all_preds.extend(pred for (pred, leaf) in zip(preds, is_leaf) if leaf)
+                all_true.extend(true for (true, leaf) in zip(true, is_leaf) if leaf)
 
         n = len(all_preds)
         metrics = {
