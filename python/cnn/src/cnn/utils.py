@@ -1,12 +1,16 @@
-import torch
-import numpy as np
-from torch.utils.data import random_split
-
 import os
 import random
 
+import numpy as np
+import torch
+from torch.utils.data import random_split
+
 
 def set_seed(seed=123):
+    """
+    Seed Python, NumPy, and PyTorch (CPU, CUDA, and MPS) for reproducibility.
+    """
+
     # Seed python, numpy, and torch
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -26,8 +30,12 @@ def set_seed(seed=123):
         torch.backends.cudnn.benchmark = False
 
 
-# TODO: Remove splitting
 def split(data, lengths, cfg):
+    """
+    Split a dataset into subsets using a seeded generator (cfg.train.seed).
+    This is a thin wrapper around torch.utils.data.random_split().
+    """
+
     return random_split(
         data,
         lengths,

@@ -1,8 +1,8 @@
+from datetime import datetime
+import json
+from pathlib import Path
 import time
 from typing import Dict, List, Optional, Tuple
-import json
-from datetime import datetime
-from pathlib import Path
 
 import timm
 import torch
@@ -14,7 +14,19 @@ from ..utils import set_seed
 
 
 class FlatModel(nn.Module):
-    """Flat image classifier using a timm backbone."""
+    """
+    Flat image classifier using a timm backbone.
+
+    The backbone and classification head are split explicitly (rather than
+    using timm's built-in num_classes) so that a trained FlatModel can be
+    used as the backbone of an LCPNModel.
+
+    Args:
+        name:      Model name, used for saving and loading.
+        directory: Root directory for saving model results, configuration, and metadata.
+        n_classes: Number of output classes.
+        config:    Config object with model, train, optimizer, scheduler sections.
+    """
 
     def __init__(
         self,
@@ -23,6 +35,18 @@ class FlatModel(nn.Module):
         n_classes: int,
         config: Config,
     ):
+        """
+        Initialise backbone, head, history, and model metadata.
+
+        The history dict is initialised with empty values here and reset
+        at the start of fit().
+
+        Args:
+            name:      Model name, used for saving and loading.
+            directory: Root directory for saving model artefacts.
+            n_classes: Number of output classes.
+            config:    Config object with model, train, optimizer, scheduler sections.
+        """
         super().__init__()
 
         self.name = name
@@ -60,6 +84,7 @@ class FlatModel(nn.Module):
         }
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Pass input through backbone and classification head."""
         return self.head(self.backbone(x))
 
     # inference ----------------------------------------------------------------
@@ -69,7 +94,17 @@ class FlatModel(nn.Module):
         x: torch.Tensor,
         outputs: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Return predicted class indices for a batch of images."""
+        """
+        Return predicted class indices for a batch of images.
+
+        Args:
+            x:       Input image tensor.
+            outputs: Optional pre-computed forward pass output. If provided,
+                     the forward pass is skipped.
+
+        Returns:
+            Integer class index tensor of shape (batch_size,).
+        """
         with torch.no_grad():
             if outputs is None:
                 outputs = self.forward(x)
@@ -80,7 +115,17 @@ class FlatModel(nn.Module):
         x: torch.Tensor,
         outputs: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Return softmax class probabilities for a batch of images."""
+        """
+        Return softmax class probabilities for a batch of images.
+
+        Args:
+            x:       Input image tensor.
+            outputs: Optional pre-computed forward pass output. If provided,
+                     the forward pass is skipped.
+
+        Returns:
+            Probability tensor of shape (batch_size, n_classes).
+        """
         with torch.no_grad():
             if outputs is None:
                 outputs = self.forward(x)
@@ -94,6 +139,20 @@ class FlatModel(nn.Module):
         optimizer: torch.optim.Optimizer,
         criterion: Optional[nn.Module] = None,
     ) -> float:
+        """
+        Run one training epoch.
+
+        Sets the model to train mode. Uses CrossEntropyLoss if no
+        criterion is provided.
+
+        Args:
+            loader:    Training data loader.
+            optimizer: Optimizer for parameter updates.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            Mean loss per batch over the epoch.
+        """
         self.train()
         if criterion is None:
             criterion = nn.CrossEntropyLoss()
@@ -116,7 +175,17 @@ class FlatModel(nn.Module):
         loader,
         criterion: Optional[nn.Module] = None,
     ) -> Dict[str, float]:
-        """Evaluate for one epoch, returning metrics only. Used during fit()."""
+        """
+        Evaluate for one epoch, returning metrics only. Used during fit().
+        This is a thin wrapper around evaluate().
+
+        Args:
+            loader:    Validation data loader.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            Dict with keys "loss" and "accuracy".
+        """
         metrics, _, _ = self.evaluate(loader, criterion, desc="  Valid")
         return metrics
 
@@ -125,7 +194,19 @@ class FlatModel(nn.Module):
         loader,
         criterion: Optional[nn.Module] = None,
     ) -> Tuple[Dict[str, float], List[str], List[str]]:
-        """Evaluate on test set, returning metrics and collected predictions."""
+        """
+        Evaluate on a test set, returning metrics and collected predictions.
+        This is a thin wrapper around evaluate().
+
+        Args:
+            loader:    Test data loader.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            metrics: Dict with keys "loss" and "accuracy".
+            preds:   Predicted class indices, one per sample.
+            true:    True class indices, one per sample.
+        """
         metrics, preds, true = self.evaluate(
             loader, criterion, desc="  Test", collect_predictions=True
         )
@@ -138,6 +219,23 @@ class FlatModel(nn.Module):
         desc: str = "  Eval",
         collect_predictions: bool = False,
     ) -> Tuple[Dict[str, float], Optional[List], Optional[List]]:
+        """
+        Evaluate the model over a data loader.
+
+        Sets the model to eval mode. Used internally by validate() and test().
+
+        Args:
+            loader:              Data loader to evaluate on.
+            criterion:           Optional loss function. Defaults to CrossEntropyLoss.
+            desc:                tqdm progress bar label.
+            collect_predictions: If True, return per-sample predictions and
+                                 true labels. If False, these are returned as None.
+
+        Returns:
+            metrics: Dict with keys "loss" and "accuracy".
+            preds:   Predicted class indices if collect_predictions, else None.
+            true:    True class indices if collect_predictions, else None.
+        """
         self.eval()
         if criterion is None:
             criterion = nn.CrossEntropyLoss()
@@ -174,6 +272,34 @@ class FlatModel(nn.Module):
         optimizer: Optional[torch.optim.Optimizer] = None,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     ) -> Dict:
+        """
+        Train the model for the number of epochs specified in config.
+
+        Resets history at the start of each call. The seed is incremented
+        each epoch (cfg.train.seed + epoch) for reproducible but varied
+        shuffling. Defaults to Adam and CosineAnnealingLR if no optimizer
+        or scheduler are provided respectively.
+
+        Args:
+            train_loader: Training data loader.
+            valid_loader: Validation data loader.
+            criterion:    Optional loss function. Defaults to CrossEntropyLoss.
+            optimizer:    Optional optimizer. Defaults to Adam with
+                          cfg.optimizer.learning_rate.
+            scheduler:    Optional LR scheduler. Defaults to CosineAnnealingLR
+                          with cfg.scheduler.learning_rate_min.
+
+        Returns:
+            History dict with the following structure:
+            {
+                "train":            list of {"loss": float} per epoch,
+                "valid":            list of {"loss": float, "accuracy": float} per epoch,
+                "start_time":       str  # ISO 8601 datetime,
+                "end_time":         str  # ISO 8601 datetime,
+                "duration_seconds": float,
+                "epochs_completed": int,
+            }
+        """
         cfg = self.config
 
         if optimizer is None:
@@ -224,6 +350,24 @@ class FlatModel(nn.Module):
     # read / write -------------------------------------------------------------
 
     def save(self, timestamp: bool = True, overwrite: bool = False) -> Path:
+        """
+        Save model weights, config, history, and metadata to disk.
+
+        Creates a subdirectory under self.directory named after self.name,
+        optionally suffixed with a timestamp. Saves:
+        - weights.pth: model state dict
+        - config.toml: training config
+        - history.json: per-epoch training history, e.g. that returned by fit()
+        - model_metadata.json: architecture metadata
+
+        Args:
+            timestamp: If True, appends a datetime stamp to the save directory
+                       name to avoid overwriting prior runs.
+            overwrite: If True, allows saving into an existing directory.
+
+        Returns:
+            Path to the save directory.
+        """
         if timestamp:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_dir = self.directory / f"{self.name}_{stamp}"
@@ -246,6 +390,18 @@ class FlatModel(nn.Module):
 
     @classmethod
     def load(cls, directory: Path) -> "FlatModel":
+        """
+        Load a FlatModel from a saved directory.
+
+        Reconstructs the model from config.toml and model_metadata.json,
+        loads weights from weights.pth, and restores history from history.json.
+
+        Args:
+            directory: Path to a directory created by save().
+
+        Returns:
+            Loaded FlatModel instance.
+        """
         load_dir = Path(directory)
         config = Config(load_dir / "config.toml")
 
@@ -273,6 +429,12 @@ class FlatModel(nn.Module):
     # helpers ------------------------------------------------------------------
 
     def get_num_parameters(self) -> Dict[str, int]:
+        """
+        Return parameter counts for the backbone, head, and total.
+
+        Returns:
+            Dictionary with keys "backbone", "heads", and "total".
+        """
         backbone_params = sum(p.numel() for p in self.backbone.parameters())
         head_params = sum(p.numel() for p in self.head.parameters())
         return {
@@ -282,6 +444,7 @@ class FlatModel(nn.Module):
         }
 
     def __repr__(self) -> str:
+        """Return a string summary of the model architecture and parameter count."""
         param_counts = self.get_num_parameters()
         return (
             f"FlatModel(\n"

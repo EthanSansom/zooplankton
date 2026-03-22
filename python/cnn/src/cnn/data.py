@@ -1,9 +1,9 @@
-import torch
-from torch.utils.data import Dataset
-from PIL import Image
-
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
+
+from PIL import Image
+import torch
+from torch.utils.data import Dataset
 
 from .hierarchy import Hierarchy
 
@@ -23,10 +23,13 @@ class ImageDataset(Dataset):
     Note that images are converted to greyscale on load in __getitem__.
 
     Args:
-        root:            Path to the root directory containing class subdirectories
-        transform:       Optional transforms applied to each image
-        class_to_index:  Optional mapping of class name to integer label. If None,
-                         classes are assigned indices alphabetically.
+        root:           Path to the root directory containing class subdirectories.
+        transform:      Optional transforms applied to each image.
+        class_to_index: Optional mapping of class name to integer label. If None,
+                        classes are assigned indices alphabetically.
+        class_to_nmax:  Optional cap on the number of images per class. Accepts
+                        a single int (applied to all classes) or a dict mapping
+                        class names to individual caps.
     """
 
     def __init__(
@@ -36,6 +39,8 @@ class ImageDataset(Dataset):
         class_to_index: Optional[Dict[str, int]] = None,
         class_to_nmax: Optional[Union[Dict[str, int], int]] = None,
     ):
+        """Build the dataset by scanning root for class subdirectories."""
+
         self.root = Path(root)
         self.transform = transform
 
@@ -66,17 +71,30 @@ class ImageDataset(Dataset):
                 self.labels.append(label)
 
     def __len__(self) -> int:
+        """Return the total number of images in the dataset."""
         return len(self.image_paths)
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
+        """
+        Load and return a single sample.
+
+        Args:
+            index: Sample index.
+
+        Returns:
+            Tuple of (image tensor, integer class label).
+        """
+
         # `.convert("L")` converts to greyscale, which is appropriate for Zooplankton:
         # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert
         image = Image.open(self.image_paths[index]).convert("L")
         if self.transform:
             image = self.transform(image)
+
         return image, self.labels[index]
 
     def __repr__(self) -> str:
+        """Return a string summary of the dataset."""
         return (
             f"ImageDataset(\n"
             f"  root={self.root},\n"
@@ -91,11 +109,21 @@ class ImageDataset(Dataset):
 
 class LCPNDataset(Dataset):
     """
-    Wraps a flat dataset to produce hierarchical labels for an input dataset
-    to a Local Classifier per Parent Node (LCPN) model.
+    Wraps a flat ImageDataset to produce hierarchical labels for a
+    Local Classifier per Parent Node (LCPN) model.
 
-    Takes a base dataset with (image, leaf_label_index) and converts to
-    (image, hierarchical_labels_dict) based on hierarchy structure.
+    Takes a base dataset with (image, class_index) and converts to
+    (image, hierarchical_labels_dict) based on the hierarchy structure.
+    Supports partially-labelled samples: node_index_to_name may map to
+    any node in the hierarchy, not just leaves.
+
+    Args:
+        base_dataset:       Dataset returning (image, class_index).
+        hierarchy:          Hierarchy object defining the tree structure.
+        node_index_to_name: Mapping from class indices to node names.
+                            May include both leaf nodes and internal nodes
+                            for partially-labelled samples,
+                            e.g. {0: 'copepod', 1: 'calanoid', 2: 'detritus'}.
     """
 
     def __init__(
@@ -105,11 +133,7 @@ class LCPNDataset(Dataset):
         node_index_to_name: Dict[int, str],
     ):
         """
-        Args:
-            base_dataset: Dataset returning (image, leaf_class_index)
-            hierarchy: Hierarchy object defining the structure
-            leaf_index_to_name: Mapping from leaf class indices to node names
-                              e.g., {0: 'C', 1: 'O', 2: 'Q', ...}
+        Validate node names against the hierarchy and precompute hierarchical labels.
         """
         self.base_dataset = base_dataset
         self.hierarchy = hierarchy
@@ -125,13 +149,16 @@ class LCPNDataset(Dataset):
 
     def _compute_labels(self):
         """
-        Compute hierarchical labels for each leaf class index
+        Precompute hierarchical labels for each class index.
 
-        Creates mapping: node_index -> {
-            parent_node_name: child_index,
-            child_node_name: grandchild_index,
-            ...
-        }
+        For each node index, walks the path from root to node and records
+        the child index at each parent, producing a dict of the form:
+            { parent_name: child_index, child_name: grandchild_index, ... }
+
+        For partially-labelled samples, the path terminates at the labelled
+        node rather than a leaf.
+
+        Sets attribute: node_index_to_labels.
         """
         self.node_index_to_labels = {}
 
@@ -148,19 +175,21 @@ class LCPNDataset(Dataset):
             self.node_index_to_labels[node_index] = labels
 
     def __len__(self) -> int:
+        """Return the total number of samples in the dataset."""
         return len(self.base_dataset)
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, Dict[str, int]]:
         """
-        Get sample with hierarchical labels
+        Return a single sample with hierarchical labels.
 
         Args:
-            index: Sample index
+            index: Sample index.
 
         Returns:
-            image: Image tensor
-            labels: Dict mapping parent node names to child class indices
-                    Only includes nodes on the path from root to the node
+            Tuple of (image tensor, labels dict), where labels maps each
+            on-path parent node name to the index of the correct child.
+            For partially-labelled samples, only on-path nodes up to the
+            labelled node are included.
         """
         # Get image and flat label from base dataset
         image, node_class_index = self.base_dataset[index]
@@ -171,29 +200,38 @@ class LCPNDataset(Dataset):
 
 class LCPNCollator:
     """
-    Collate function for batching LCPNDataset datasets
+    Collate function for batching LCPNDataset samples.
 
-    Converts list of (image, labels_dict) into batched tensors
+    Converts a list of (image, labels_dict) tuples into a batched image
+    tensor and a dict of per-parent label tensors, using -1 as a sentinel
+    for samples that do not pass through a given parent node. Supports
+    partially-labelled samples, where the label path terminates above a leaf.
+
+    Args:
+        hierarchy: Hierarchy object used to enumerate all parent nodes.
     """
 
     def __init__(self, hierarchy: Hierarchy):
         """
         Args:
-            hierarchy: Hierarchy object to get all parent nodes
+            hierarchy: Hierarchy object used to enumerate all parent nodes.
         """
         self.hierarchy = hierarchy
         self.all_parent_nodes = hierarchy.get_parent_nodes()
 
     def __call__(self, batch: List[Tuple[torch.Tensor, Dict[str, int]]]):
         """
-        Collate batch of hierarchical samples
+        Collate a batch of hierarchical samples.
 
         Args:
-            batch: List of (image, labels_dict) tuples
+            batch: List of (image, labels_dict) tuples from LCPNDataset.
 
         Returns:
-            images: Batched image tensor (batch_size, C, H, W)
-            labels: Dict mapping node names to batched label tensors (batch_size,)
+            images:       Batched image tensor of shape (batch_size, C, H, W).
+            batch_labels: Dict mapping each parent node name to a label
+                            tensor of shape (batch_size,), with -1 for
+                            off-path samples. For partially-labelled samples,
+                            nodes below the labelled node are also -1.
         """
         images = []
         node_to_child_index_dicts = []
@@ -210,19 +248,20 @@ class LCPNCollator:
         # of the label in a Tensor, using 0-based indexing.
         #
         # Consider the following hierarchy for a subset of EMNIST data:
-        # - root : [round, long]
-        # - round : [o, c, O, C]
-        # - long : [l, L, i, I]
+        # - root:  [round, long]
+        # - round: [o, c, O, C]
+        # - long:  [l, L, i, I]
         #
         # An image "i" will have labels: { root : 1, long : 2} corresponding
         # to it's hierarchical class of [root, long, i].
 
         # For a Local Classifier per Parent Node (LCPN) model, we create a
-        # tensor of labels for each parent-node. If this batch is {i, L}, then:
+        # tensor of labels for each parent-node. Consider a batch containing
+        # samples "i" and "L", then:
         # batch_labels = {
-        #   root : tensor([1, 1]),    # Index of `long` class in `root` classifier
-        #   round : tensor([-1, -1]), # Missing sentinel, since i, L aren't in `round`
-        #   long : tensor([2, 1])     # Index of `i`, `L` in `long` classifier
+        #   root:  tensor([1, 1]),   # Index of `long` class in `root` classifier
+        #   round: tensor([-1, -1]), # Missing sentinel, since `i`, `L` aren't in `round`
+        #   long:  tensor([2, 1])    # Index of `i`, `L` in `long` classifier
         # }
         batch_labels = {}
         for parent_node in self.all_parent_nodes:
@@ -244,16 +283,19 @@ class LCPNCollator:
         self, batch_labels: Dict[str, torch.Tensor], index: int
     ) -> List[str]:
         """
-        Extract path for a single sample from batched labels
+        Extract the root-to-node path for a single sample from batched labels.
+
+        For partially-labelled samples, the path terminates at the labelled
+        node rather than a leaf.
 
         Args:
-            batch_labels: Batched labels dict from __call__
-                        {node_name: tensor of shape (batch_size,)}
-            index: Index of sample to extract
+            batch_labels: Batched labels dict from __call__,
+                          mapping node names to tensors of shape (batch_size,).
+            index:        Index of the sample to extract.
 
         Returns:
-            Path from root to leaf as list of node names
-            e.g., ['root', 'straight', 'angular', 'A']
+            Path from root to labelled node as a list of node names,
+            e.g. ['root', 'straight', 'vertical', 'i'].
         """
         # Extract sample labels (only on-path nodes)
         sample_labels = {}
@@ -285,25 +327,39 @@ class LCPNCollator:
     def uncollate_label_leaf(
         self, batch_labels: Dict[str, torch.Tensor], index: int
     ) -> str:
-        """Extract the true label for a single sample from batched labels."""
+        """
+        Extract the deepest labelled node for a single sample from batched labels.
+
+        For fully-labelled samples this is a leaf node; for partially-labelled
+        samples this is the deepest on-path node.
+
+        Args:
+            batch_labels: Batched labels dict from __call__,
+                          mapping node names to tensors of shape (batch_size,).
+            index:        Index of the sample to extract.
+
+        Returns:
+            Name of the deepest labelled node for the sample.
+        """
         return self.uncollate_label_path(batch_labels, index)[-1]
 
     def uncollate_label_paths(
         self, batch_labels: Dict[str, torch.Tensor]
     ) -> List[List[str]]:
         """
-        Extract paths for all samples from batched labels
+        Extract root-to-node paths for all samples from batched labels.
+
+        For partially-labelled samples, paths terminate at the labelled node,
+        e.g. a sample labelled "i" returns ['root', 'straight', 'vertical', 'i']
+        while a sample labelled "straight" returns ['root', 'straight'].
 
         Args:
-            batch_labels: Batched labels dict from __call__
+            batch_labels: Batched labels dict from __call__,
+                          mapping node names to tensors of shape (batch_size,).
 
         Returns:
-            List of paths (one per sample)
-            e.g., [
-                ['root', 'curved', 'open_curve', 'C'],
-                ['root', 'straight', 'vertical', 'I'],
-                ...
-            ]
+            List of paths, one per sample,
+            e.g. [['root', 'straight', 'vertical', 'i'], ['root', 'mixed'], ...].
         """
         batch_size = next(iter(batch_labels.values())).shape[0]
         return [self.uncollate_label_path(batch_labels, i) for i in range(batch_size)]
@@ -312,11 +368,16 @@ class LCPNCollator:
         self, batch_labels: Dict[str, torch.Tensor]
     ) -> Tuple[List[str], List[bool]]:
         """
-        Extract true labels for all samples from batched labels.
+        Extract the deepest labelled node for all samples from batched labels.
+
+        Args:
+            batch_labels: Batched labels dict from __call__,
+                          mapping node names to tensors of shape (batch_size,).
 
         Returns:
-            leaves:  True label per sample (leaf node or internal node if partially labelled)
-            is_leaf: True if the sample is fully labelled to a leaf node
+            leaves:  Deepest labelled node per sample (leaf node name for
+                     fully-labelled samples, internal node name for partial).
+            is_leaf: Boolean per sample, True if the label is a leaf node.
         """
         paths = self.uncollate_label_paths(batch_labels)
         leaves = [path[-1] for path in paths]

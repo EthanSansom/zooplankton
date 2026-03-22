@@ -1,10 +1,9 @@
+from datetime import datetime
+import json
+from pathlib import Path
 import time
 import warnings
 from typing import Dict, List, Optional, Tuple
-
-import json
-from datetime import datetime
-from pathlib import Path
 
 import timm
 import torch
@@ -12,17 +11,24 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from ..config import Config
-from ..hierarchy import Hierarchy
 from ..data import LCPNCollator
+from ..hierarchy import Hierarchy
 from ..utils import set_seed
 
 
 class LCPNModel(nn.Module):
     """
-    Local Classifier Per Parent Node (LCPN) hierarchical model.
+    Local Classifier Per Parent Node (LCPN) hierarchical image classifier.
 
-    Uses a shared backbone (feature extractor) with multiple task-specific
-    classification heads: one linear layer per parent node in the hierarchy.
+    Uses a shared backbone (feature extractor) with one linear classification
+    head per parent node in the hierarchy. The backbone and heads are trained
+    jointly unless the backbone is frozen.
+
+    Args:
+        name:      Model name, used for saving and loading.
+        directory: Root directory for saving model artefacts.
+        hierarchy: Hierarchy object defining the tree structure.
+        config:    Config object with model, train, optimizer, scheduler sections.
     """
 
     # initialization -----------------------------------------------------------
@@ -35,11 +41,22 @@ class LCPNModel(nn.Module):
         config: Config,
     ):
         """
-        Initialize LCPN model
+        Initialise backbone, classification heads, history, and model metadata.
+
+        If config.model.backbone_model is set, backbone weights are loaded from
+        the specified FlatModel directory, overriding any timm pretrained weights.
+        If config.model.freeze_backbone is True, backbone parameters are frozen
+        and only the heads are trained. A warning is raised if both
+        backbone_model and pretrained=True are set simultaneously.
+
+        The history dict is initialised with empty values here and reset
+        at the start of fit().
 
         Args:
-            hierarchy: Hierarchy object defining the structure
-            config: Config object (uses config.model.backbone)
+            name:      Model name, used for saving and loading.
+            directory: Root directory for saving model artefacts.
+            hierarchy: Hierarchy object defining the tree structure.
+            config:    Config object with model, train, optimizer, scheduler sections.
         """
         super().__init__()
 
@@ -70,7 +87,6 @@ class LCPNModel(nn.Module):
                 UserWarning,
             )
 
-        # Create one classification head per parent node
         self.heads = nn.ModuleDict()
         for parent_node in hierarchy.get_parent_nodes():
             n_classes = hierarchy.num_children(parent_node)
@@ -93,7 +109,7 @@ class LCPNModel(nn.Module):
             "n_parameters": self.get_num_parameters(),
         }
 
-    # foward -------------------------------------------------------------------
+    # forward ------------------------------------------------------------------
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
@@ -103,7 +119,7 @@ class LCPNModel(nn.Module):
             x: Input images (batch_size, channels, height, width)
 
         Returns:
-            Dictionary mapping parent node names to logits
+            Dictionary mapping parent node names to logits, structured like:
             {
                 'root': tensor of shape (batch_size, n_classes_root),
                 'parent': tensor of shape (batch_size, n_classes_parent),
@@ -115,7 +131,7 @@ class LCPNModel(nn.Module):
         features = self.backbone(x)
         return {node_name: head(features) for node_name, head in self.heads.items()}
 
-    # inference ----------------------------------------------------------------
+    # backbone -----------------------------------------------------------------
 
     def freeze_backbone(self) -> None:
         """Freeze all backbone parameters."""
@@ -131,13 +147,31 @@ class LCPNModel(nn.Module):
         """Return True if backbone parameters are frozen."""
         return not next(self.backbone.parameters()).requires_grad
 
+    # inference ----------------------------------------------------------------
+
     def predict_greedy(
         self,
         x: torch.Tensor,
         outputs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Tuple[List[str], List[List[str]]]:
         """
-        Greedy top-down prediction: follow argmax at each level.
+        Predict by greedily following the argmax at each parent node.
+
+        At each level, the child with the highest logit is selected, and
+        prediction continues until a leaf is reached. Provides the prediction
+        for every parent node and the leaf node (e.g. ['root', 'curved', 'open_curve', 'C']).
+        Use predict_greedy_fast() if paths are not needed (e.g. only class 'C'
+        is required).
+
+        Args:
+            x:       Input image tensor of shape (batch_size, C, H, W).
+            outputs: Optional pre-computed forward pass output. If provided,
+                     the forward pass is skipped. Useful for avoiding redundant
+                     forward passes when predictions and probabilities are both needed.
+
+        Returns:
+            predictions: Predicted leaf node name per sample, e.g. ['C', 'O', 'A'].
+            paths:       Root-to-leaf path per sample, e.g. [['root', 'curved', 'open_curve', 'C'], ...].
         """
 
         with torch.no_grad():
@@ -179,9 +213,18 @@ class LCPNModel(nn.Module):
         outputs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> List[str]:
         """
-        Greedy top-down prediction: follow argmax at each level.
-        Faster variant of predict_greedy() that omits path tracking, used
-        during validation in `evaluate()`.
+        Predict by greedily following the argmax at each parent node.
+
+        Faster variant of predict_greedy() that omits path tracking.
+        Used internally during evaluate().
+
+        Args:
+            x:       Input image tensor of shape (batch_size, C, H, W).
+            outputs: Optional pre-computed forward pass output. If provided,
+                     the forward pass is skipped.
+
+        Returns:
+            Predicted leaf node name per sample, e.g. ['C', 'O', 'A'].
         """
         with torch.no_grad():
             if outputs is None:
@@ -215,8 +258,21 @@ class LCPNModel(nn.Module):
         outputs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Tuple[List[str], List[List[str]]]:
         """
-        Global optimal prediction: return the leaf with the highest joint
-        probability across the full hierarchy.
+        Predict by selecting the leaf with the highest joint probability
+        across the full hierarchy.
+
+        Unlike predict_greedy(), this considers all root-to-leaf paths and
+        selects the globally optimal leaf rather than making locally optimal
+        decisions at each node.
+
+        Args:
+            x:       Input image tensor of shape (batch_size, C, H, W).
+            outputs: Optional pre-computed forward pass output. If provided,
+                     the forward pass is skipped.
+
+        Returns:
+            predictions: Predicted leaf node name per sample, e.g. ['C', 'O', 'A'].
+                paths:   Root-to-leaf path per sample, e.g. [['root', 'curved', 'open_curve', 'C'], ...].
         """
         with torch.no_grad():
             if outputs is None:
@@ -240,7 +296,33 @@ class LCPNModel(nn.Module):
         x: torch.Tensor,
         outputs: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict[str, torch.Tensor]:
-        """Predict probabilities for all nodes (parents and leaves)"""
+        """
+        Compute softmax probabilities for all parent nodes and joint
+        probabilities for all leaf nodes.
+
+        Leaf probabilities are computed as the product of softmax probabilities
+        along the root-to-leaf path.
+
+        Args:
+            x:       Input image tensor of shape (batch_size, C, H, W).
+            outputs: Optional pre-computed forward pass output. If provided,
+                     the forward pass is skipped.
+
+        Returns:
+            Returns a Dict with "root" and "leaves" keys, structured like:
+            {
+                "parents": {
+                    "root":     tensor of shape (batch_size, n_children_root),
+                    "curved":   tensor of shape (batch_size, n_children_curved),
+                    ...
+                },
+                "leaves": {
+                    "C": tensor of shape (batch_size,),
+                    "O": tensor of shape (batch_size,),
+                    ...
+                },
+            }
+        """
 
         with torch.no_grad():
             if outputs is None:
@@ -276,7 +358,25 @@ class LCPNModel(nn.Module):
         labels: Dict[str, torch.Tensor],
         criterion: Optional[nn.Module] = None,
     ) -> torch.Tensor:
-        """Sum per-parent-node loss over all active classifiers in the batch"""
+        """
+        Compute total loss by summing per-parent-node losses over the batch.
+
+        Labels use -1 as a sentinel for off-path samples (i.e. samples that
+        do not pass through a given parent node). These are masked out before
+        computing the loss for that classifier. Uses CrossEntropyLoss if no
+        criterion is provided.
+
+        Args:
+            outputs:   Forward pass output from `forward()`, mapping parent node
+                       names to logit tensors of shape (batch_size, n_children).
+            labels:    Batched labels from `LCPNCollator`, mapping parent node
+                       names to label tensors of shape (batch_size,), with -1
+                       for off-path samples.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            Scalar total loss tensor.
+        """
 
         if criterion is None:
             criterion = nn.CrossEntropyLoss()
@@ -299,6 +399,21 @@ class LCPNModel(nn.Module):
         optimizer: torch.optim.Optimizer,
         criterion: Optional[nn.Module] = None,
     ) -> float:
+        """
+        Run one training epoch.
+
+        Sets the model to train mode. Uses CrossEntropyLoss if no
+        criterion is provided.
+
+        Args:
+            loader:    Training data loader yielding (images, labels) batches,
+                       where labels is a dict from LCPNCollator.
+            optimizer: Optimizer for parameter updates.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            Mean loss per batch over the epoch.
+        """
         self.train()
         device = self.config.metadata.device
         total_loss = 0.0
@@ -323,7 +438,18 @@ class LCPNModel(nn.Module):
         collator: LCPNCollator,
         criterion: Optional[nn.Module] = None,
     ) -> Dict[str, float]:
-        """Evaluate for one epoch, returning metrics only. Used during fit()."""
+        """
+        Evaluate for one epoch, returning metrics only. Used during fit().
+        This is a thin wrapper around evaluate().
+
+        Args:
+            loader:    Validation data loader.
+            collator:  LCPNCollator used to decode true labels.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            Dictionary with keys "loss" and "accuracy".
+        """
         metrics, _, _ = self.evaluate(loader, collator, criterion, desc="  Valid")
         return metrics
 
@@ -333,7 +459,21 @@ class LCPNModel(nn.Module):
         collator: LCPNCollator,
         criterion: Optional[nn.Module] = None,
     ) -> Tuple[Dict[str, float], List[str], List[str]]:
-        """Evaluate on test set, returning metrics and collected predictions."""
+        """
+        Evaluate on a test set, returning metrics and collected predictions.
+        This is a thin wrapper around evaluate().
+
+        Args:
+            loader:    Test data loader.
+            collator:  LCPNCollator used to decode true labels.
+            criterion: Optional loss function. Defaults to CrossEntropyLoss.
+
+        Returns:
+            Tuple of:
+                metrics: Dict with keys "loss" and "accuracy".
+                preds:   Predicted leaf node names, one per fully-labelled sample.
+                true:    True leaf node names, one per fully-labelled sample.
+        """
         metrics, preds, true = self.evaluate(
             loader, collator, criterion, desc="  Test", collect_predictions=True
         )
@@ -347,6 +487,27 @@ class LCPNModel(nn.Module):
         desc: str = "  Eval",
         collect_predictions: bool = False,
     ) -> Tuple[Dict[str, float], Optional[List[str]], Optional[List[str]]]:
+        """
+        Evaluate the model over a data loader.
+
+        Sets the model to eval mode. Used internally by validate() and test().
+        Partially-labelled samples (where the true label is not a leaf node)
+        are excluded from accuracy computation.
+
+        Args:
+            loader:              Data loader yielding (images, labels) batches,
+                                 where labels is a dict from LCPNCollator.
+            collator:            LCPNCollator used to decode true labels.
+            criterion:           Optional loss function. Defaults to CrossEntropyLoss.
+            desc:                tqdm progress bar label.
+            collect_predictions: If True, return per-sample predictions and
+                                 true labels. If False, these are returned as None.
+
+        Returns:
+            metrics: Dict with keys "loss" and "accuracy".
+            preds:   Predicted leaf node names if collect_predictions, else None.
+            true:    True leaf node names if collect_predictions, else None.
+        """
         self.eval()
         device = self.config.metadata.device
         total_loss = 0.0
@@ -382,7 +543,16 @@ class LCPNModel(nn.Module):
         )
 
     def _load_backbone_weights(self, path: Path) -> None:
-        """Load backbone weights from a saved FlatModel directory."""
+        """
+        Load backbone weights from a saved FlatModel directory.
+
+        Raises ValueError if the backbone architecture in the FlatModel
+        does not match config.model.backbone.
+
+        Args:
+            path: Path to a FlatModel save directory containing
+                  weights.pth and model_metadata.json.
+        """
         with open(path / "model_metadata.json") as f:
             flat_metadata = json.load(f)
 
@@ -413,7 +583,36 @@ class LCPNModel(nn.Module):
         optimizer: Optional[torch.optim.Optimizer] = None,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     ) -> Dict:
-        """Full training loop driven by self.config."""
+        """
+        Train the model for the number of epochs specified in config.
+
+        Resets history at the start of each call. The seed is incremented
+        each epoch (cfg.train.seed + epoch) for reproducible but varied
+        shuffling. If the backbone is frozen, only head parameters are passed
+        to the optimizer. Defaults to Adam and CosineAnnealingLR if no
+        optimizer or scheduler are provided.
+
+        Args:
+            train_loader: Training data loader.
+            valid_loader: Validation data loader.
+            collator:     LCPNCollator used to decode true labels during validation.
+            criterion:    Optional loss function. Defaults to CrossEntropyLoss.
+            optimizer:    Optional optimizer. Defaults to Adam with
+                          cfg.optimizer.learning_rate.
+            scheduler:    Optional LR scheduler. Defaults to CosineAnnealingLR
+                          with cfg.scheduler.learning_rate_min.
+
+        Returns:
+            History dict with the following structure:
+            {
+                "train":            list of {"loss": float} per epoch,
+                "valid":            list of {"loss": float, "accuracy": float} per epoch,
+                "start_time":       str  # ISO 8601 datetime,
+                "end_time":         str  # ISO 8601 datetime,
+                "duration_seconds": float,
+                "epochs_completed": int,
+            }
+        """
 
         cfg = self.config
 
@@ -472,11 +671,23 @@ class LCPNModel(nn.Module):
 
     def save(self, timestamp: bool = True, overwrite: bool = False) -> Path:
         """
-        Save model weights, config, metadata, and optionally training history
-        to a new timestamped directory under self.directory.
+        Save model weights, config, hierarchy, history, and metadata to disk.
+
+        Creates a subdirectory under self.directory named after self.name,
+        optionally suffixed with a timestamp. Saves:
+        - weights.pth: model state dict
+        - config.toml: training config
+        - hierarchy.json: hierarchy definition
+        - history.json: per-epoch training history, e.g. that returned by fit()
+        - model_metadata.json: architecture metadata
+
+        Args:
+            timestamp: If True, appends a datetime stamp to the save directory
+                       name to avoid overwriting prior runs.
+            overwrite: If True, allows saving into an existing directory.
 
         Returns:
-            Path to the created save directory.
+            Path to the save directory.
         """
         if timestamp:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -505,13 +716,17 @@ class LCPNModel(nn.Module):
         directory: Path,
     ) -> Tuple["LCPNModel", Dict, Optional[Dict]]:
         """
-        Load a saved LCPNModel from a directory.
+        Load an LCPNModel from a saved directory.
+
+        Reconstructs the model from config.toml, hierarchy.json, and
+        model_metadata.json, loads weights from weights.pth, and restores
+        history from history.json.
 
         Args:
-            directory: Path to a save directory created by save()
+            directory: Path to a directory created by save().
 
         Returns:
-            LCPNModel with weights loaded
+            Loaded LCPNModel instance.
         """
         load_dir = Path(directory)
 
@@ -542,7 +757,12 @@ class LCPNModel(nn.Module):
     # helpers ------------------------------------------------------------------
 
     def get_num_parameters(self) -> Dict[str, int]:
-        """Get number of parameters in model"""
+        """
+        Return parameter counts for the backbone, heads, and total.
+
+        Returns:
+            Dictionary with keys "backbone", "heads", and "total".
+        """
         backbone_params = sum(p.numel() for p in self.backbone.parameters())
         heads_params = sum(p.numel() for p in self.heads.parameters())
 
@@ -553,6 +773,7 @@ class LCPNModel(nn.Module):
         }
 
     def __repr__(self):
+        """Return a string summary of the model architecture and parameter count."""
         param_counts = self.get_num_parameters()
         return (
             f"LCPNModel(\n"

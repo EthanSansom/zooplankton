@@ -56,8 +56,9 @@ def hierarchical_metrics(
     pred_paths: List[List[str]],
 ) -> Dict:
     """
-    Compute hierarchical precision (hier_precision), recall (hier_recall), and F-score (hier_fscore).
-    Compatible with LCPNModel only, since path information is required.
+    Compute hierarchical precision (hier_precision), recall (hier_recall), and
+    F-score (hier_fscore). Compatible with LCPNModel only, since path information
+    is required.
 
     Let pred_i be the set of predicted hierarchical labels for sample i
     (e.g. {root, round, Q}) and true_i be the set of true hierarchical
@@ -73,7 +74,11 @@ def hierarchical_metrics(
         pred_paths: Predicted root-to-leaf paths, one per sample
 
     Returns:
-        {"hier_precision": float, "hier_recall": float, "hier_fscore": float}
+        {
+            "hier_precision": float,
+            "hier_recall": float,
+            "hier_fscore": float
+        }
     """
 
     # We're dealing with sets here. Consider the following hierarchical prediction:
@@ -83,6 +88,10 @@ def hierarchical_metrics(
     # - intersection: {letter, round, Q} & {letter, round, O} = {letter, round}
     # - intersection size (AKA cardinality): |{letter, round}| = 2
     # - pred_size = |{letter, round, Q}| = 3, true size = |{letter, round, O}| = 3
+    #
+    # Note that if every leaf in the hierarchy has the same distance from the
+    # root (e.g. [letter, round, C] and [letter, angular, V] form length-3 paths)
+    # then `hier_precision` and `hier_recall` are equivilant.
     total_intersection_size = 0
     total_pred_size = 0
     total_true_size = 0

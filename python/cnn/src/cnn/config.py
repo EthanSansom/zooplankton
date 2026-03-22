@@ -1,17 +1,32 @@
+import tomllib
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
-import tomllib
-import tomli_w
-import warnings
 
+import tomli_w
 import torch
 
 
 class Config:
-    """Configuration manager for training experiments"""
+    """
+    Configuration manager for training experiments.
+
+    Loads a TOML file and exposes each top-level table as a SimpleNamespace
+    attribute, e.g. a [train] table is accessed as cfg.train.epochs. A
+    [metadata] table is reserved for runtime use (e.g. cfg.metadata.device)
+    and may not be defined in the config file.
+    """
 
     def __init__(self, config_path: Path):
-        """Load configuration from TOML file"""
+        """
+        Load and validate a configuration from a TOML file.
+
+        The [metadata] table is reserved for runtime use by Config and will
+        raise a warning if found in the config file.
+
+        Args:
+            config_path: Path to a TOML configuration file.
+        """
         self.config_path = Path(config_path)
         self._load_config()
 
@@ -30,11 +45,20 @@ class Config:
         self._set_device()
 
     def __repr__(self):
+        """Return a string representation of all non-private config attributes."""
         attrs = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
         return f"Config({attrs})"
 
     def to_dict(self) -> dict:
-        """Convert config to dictionary with a TOML compatible structure"""
+        """
+        Convert config to a TOML-compatible dictionary.
+
+        Runtime-only attributes (metadata, config_path, and private attributes)
+        are excluded. torch.device values are converted to strings.
+
+        Returns:
+            Nested dict mirroring the original TOML structure.
+        """
 
         result = {}
         for key, value in self.__dict__.items():
@@ -62,8 +86,8 @@ class Config:
         Get a config value.
 
         Args:
-            section: Top-level TOML table, e.g. "train"
-            key:     Key within the section, e.g. "epochs"
+            section: Top-level TOML table, e.g. "train".
+            key:     Key within the section, e.g. "epochs".
 
         Returns:
             The current value.
@@ -75,21 +99,31 @@ class Config:
         Set a config value. Only existing keys may be updated.
 
         Args:
-            section: Top-level TOML table, e.g. "train"
-            key:     Key within the section, e.g. "epochs"
-            value:   New value
+            section: Top-level TOML table, e.g. "train".
+            key:     Key within the section, e.g. "epochs".
+            value:   New value.
+
+        Raises:
+            ValueError: If key does not exist in the section.
         """
         namespace = getattr(self, section)
         if not hasattr(namespace, key):
             raise ValueError(f"Key '{key}' does not exist in [{section}].")
+
         setattr(namespace, key, value)
 
     # read / write -------------------------------------------------------------
 
     def save(self, path: Path) -> None:
         """
-        Save config to path. Only keys present in the original file are saved,
-        but their current (potentially modified) values are used.
+        Save config to a TOML file.
+
+        Only keys present in the original file are saved, but their current
+        (potentially modified) values are used. Runtime-only attributes
+        such as metadata are excluded.
+
+        Args:
+            path: Destination file path.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,7 +136,10 @@ class Config:
     # initialization helpers ---------------------------------------------------
 
     def _load_config(self):
-        """Load TOML config file"""
+        """
+        Load the TOML config file and set each top-level table as a
+        SimpleNamespace attribute.
+        """
         with open(self.config_path, "rb") as f:
             cfg_dict = tomllib.load(f)
 
@@ -116,7 +153,10 @@ class Config:
                 setattr(self, key, value)
 
     def _set_device(self):
-        """Auto-detect and set compute device"""
+        """
+        Auto-detect and set the compute device (MPS, CUDA, or CPU),
+        stored as cfg.metadata.device.
+        """
         device = torch.device(
             "mps"
             if torch.backends.mps.is_available()
