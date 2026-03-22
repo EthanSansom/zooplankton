@@ -7,12 +7,3 @@ repos:
         files: ^python/
       - id: ruff-format
         files: ^python/
-
-  - repo: local
-    hooks:
-      - id: air-format
-        name: air format
-        entry: air format .
-        language: system
-        files: \.[Rr]$|\.qmd$
-        pass_filenames: false
