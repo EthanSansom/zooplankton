@@ -9,8 +9,6 @@ fraction = 0.2
 backbone = "resnet18"
 pretrained = true
 in_chans = 1
-backbone_model = ""
-freeze_backbone = false
 
 [data]
 image_size = 128
