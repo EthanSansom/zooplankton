@@ -1,6 +1,6 @@
 [train]
 seed = 123
-epochs = 5
+epochs = 3
 
 [validate]
 fraction = 0.2
@@ -11,7 +11,7 @@ pretrained = false
 in_chans = 1
 
 [data]
-fraction = 0.1
+fraction = 0.2
 batch_size = 64
 num_workers = 0
 

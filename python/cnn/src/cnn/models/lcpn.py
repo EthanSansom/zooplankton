@@ -317,6 +317,28 @@ class LCPNModel(nn.Module):
 
         return total_loss / len(loader)
 
+    def validate(
+        self,
+        loader,
+        collator: LCPNCollator,
+        criterion: Optional[nn.Module] = None,
+    ) -> Dict[str, float]:
+        """Evaluate for one epoch, returning metrics only. Used during fit()."""
+        metrics, _, _ = self.evaluate(loader, collator, criterion, desc="  Valid")
+        return metrics
+
+    def test(
+        self,
+        loader,
+        collator: LCPNCollator,
+        criterion: Optional[nn.Module] = None,
+    ) -> Tuple[Dict[str, float], List[str], List[str]]:
+        """Evaluate on test set, returning metrics and collected predictions."""
+        metrics, preds, true = self.evaluate(
+            loader, collator, criterion, desc="  Test", collect_predictions=True
+        )
+        return metrics, preds, true
+
     def evaluate(
         self,
         loader,
@@ -434,7 +456,7 @@ class LCPNModel(nn.Module):
             self.history["train"].append({"loss": train_loss})
             print(f"  Train: loss={train_loss:.4f}")
 
-            valid_metrics, _, _ = self.evaluate(valid_loader, collator, criterion)
+            valid_metrics = self.validate(valid_loader, collator, criterion)
             self.history["valid"].append(valid_metrics)
             print(
                 f"  Valid: loss={valid_metrics['loss']:.4f}, accuracy={valid_metrics['accuracy']:.4f}"

@@ -1,99 +1,153 @@
-from typing import Dict, List, Optional, Callable, TypedDict
+from typing import Dict, List, Optional
 
-import torch
-
-MetricFn = Callable[[List[int], List[int]], float]
-MetricsFns = Dict[str, MetricFn]
-MetricsDict = Dict[str, float]
-
-
-class StatisticsDict(TypedDict):
-    loss: float
-    n_correct: int
-    n_total: int
-    predictions: Optional[List[int]]
-    labels: Optional[List[int]]
-    n_batches: int
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    classification_report,
+    confusion_matrix,
+)
 
 
-def init_statistics(collect_predictions: bool = False) -> StatisticsDict:
-    """Initiate a statistics dictionary to record training/evaluation statistics"""
+def classification_metrics(
+    true: List[str],
+    pred: List[str],
+    labels: Optional[List[str]] = None,
+) -> Dict:
+    """
+    Compute flat classification metrics from string label lists.
+    Compatible with both FlatModel and LCPNModel predictions.
+
+    Precision, recall and F1 use macro-averaging (equal weight per class).
+
+    Args:
+        true:   True class names
+        pred:   Predicted class names
+        labels: Ordered list of class names. If None, inferred from data.
+                Pass explicitly to ensure consistent ordering across models.
+
+    Returns:
+        {
+            "accuracy":  float,
+            "precision": float (macro),
+            "recall":    float (macro),
+            "f1":        float (macro),
+            "report":    str (sklearn classification report),
+            "confusion": np.ndarray (confusion matrix),
+        }
+    """
+    return {
+        "accuracy": accuracy_score(true, pred),
+        "precision": precision_score(
+            true, pred, labels=labels, average="macro", zero_division=0
+        ),
+        "recall": recall_score(
+            true, pred, labels=labels, average="macro", zero_division=0
+        ),
+        "f1": f1_score(true, pred, labels=labels, average="macro", zero_division=0),
+        "report": classification_report(true, pred, labels=labels, zero_division=0),
+        "confusion": confusion_matrix(true, pred, labels=labels),
+    }
+
+
+def hierarchical_metrics(
+    true_paths: List[List[str]],
+    pred_paths: List[List[str]],
+) -> Dict:
+    """
+    Compute hierarchical precision (hier_precision), recall (hier_recall), and F-score (hier_fscore).
+    Compatible with LCPNModel only, since path information is required.
+
+    Let pred_i be the set of predicted hierarchical labels for sample i
+    (e.g. {root, round, Q}) and true_i be the set of true hierarchical
+    labels (e.g. {root, round, O}), then:
+    - hier_precision = sum(|pred_i & true_i|) / sum(|pred_i|)
+    - hier_recall = sum(|pred_i & true_i|) / sum(|true_i|)
+
+    Reference: Kiritchenko et al. (2006), as cited in HiClass documentation.
+    See: https://hiclass.readthedocs.io/en/latest/algorithms/metrics.html
+
+    Args:
+        true_paths: True root-to-node paths, one per sample
+        pred_paths: Predicted root-to-leaf paths, one per sample
+
+    Returns:
+        {"hier_precision": float, "hier_recall": float, "hier_fscore": float}
+    """
+
+    # We're dealing with sets here. Consider the following hierarchical prediction:
+    # Pred: [letter, round, Q]
+    # True: [letter, round, O]
+    #
+    # - intersection: {letter, round, Q} & {letter, round, O} = {letter, round}
+    # - intersection size (AKA cardinality): |{letter, round}| = 2
+    # - pred_size = |{letter, round, Q}| = 3, true size = |{letter, round, O}| = 3
+    total_intersection_size = 0
+    total_pred_size = 0
+    total_true_size = 0
+    for pred, true in zip(pred_paths, true_paths):
+        pred_set = set(pred)
+        true_set = set(true)
+
+        total_intersection_size += len(pred_set & true_set)
+        total_pred_size += len(pred_set)
+        total_true_size += len(true_set)
+
+    hier_precision = (
+        total_intersection_size / total_pred_size if total_pred_size > 0 else 0.0
+    )
+    hier_recall = (
+        total_intersection_size / total_true_size if total_true_size > 0 else 0.0
+    )
+    hier_fscore = (
+        2 * hier_precision * hier_recall / (hier_precision + hier_recall)
+        if (hier_precision + hier_recall) > 0
+        else 0.0
+    )
 
     return {
-        "loss": 0.0,
-        "n_correct": 0,
-        "n_total": 0,
-        "predictions": [] if collect_predictions else None,
-        "labels": [] if collect_predictions else None,
-        "n_batches": 0,
+        "hier_precision": hier_precision,
+        "hier_recall": hier_recall,
+        "hier_fscore": hier_fscore,
     }
 
 
-def update_statistics(
-    stats: StatisticsDict, loss: float, predictions: torch.Tensor, labels: torch.Tensor
-) -> None:
-    """Update statistics dictionary with batch results (in-place)"""
+def flat_predictions_to_names(
+    predictions: List[int],
+    index_to_name: Dict[int, str],
+) -> List[str]:
+    """
+    Convert FlatModel integer predictions to string class names,
+    for use with classification_metrics().
 
-    stats["loss"] += loss
-    stats["n_batches"] += 1
+    Args:
+        predictions:   Integer class indices from FlatModel.test()
+        index_to_name: Mapping from integer index to class name.
 
-    batch_size = labels.size(0)
-    stats["n_total"] += batch_size
-    stats["n_correct"] += (predictions == labels).sum().item()
-
-    if stats["predictions"] is not None:
-        stats["predictions"].extend(predictions.cpu().numpy())
-        stats["labels"].extend(labels.cpu().numpy())
-
-
-def calculate_metrics(
-    stats: StatisticsDict, metrics_fns: Optional[MetricsFns] = None
-) -> MetricsDict:
-    """Calculate final metrics from accumulated statistics"""
-
-    if stats["n_total"] == 0:
-        raise ValueError("No samples processed (n_total = 0)")
-
-    results = {
-        "loss": stats["loss"] / stats["n_batches"],
-        "accuracy": 100 * stats["n_correct"] / stats["n_total"],
-    }
-
-    if metrics_fns is not None:
-        if stats["predictions"] is None or stats["labels"] is None:
-            raise ValueError(
-                "metrics_fns provided but predictions not collected. "
-                "Set collect_predictions=True in init_statistics()"
-            )
-
-        predictions = stats["predictions"]
-        labels = stats["labels"]
-
-        if len(predictions) != len(labels):
-            raise ValueError(
-                f"Length mismatch: predictions ({len(predictions)}) "
-                f"vs labels ({len(labels)})"
-            )
-
-        if len(predictions) != stats["n_total"]:
-            raise ValueError(
-                f"predictions length ({len(predictions)}) does not match "
-                f"n_total ({stats['n_total']})"
-            )
-
-        # Attempt to apply the metrics functions. Catching errors since these
-        # are arbitrary-ish functions.
-        for name, metric_fn in metrics_fns.items():
-            try:
-                results[name] = metric_fn(labels, predictions)
-            except Exception as e:
-                raise ValueError(f"Error computing metric '{name}': {e}") from e
-
-    return results
+    Returns:
+        List of class name strings
+    """
+    return [index_to_name[p] for p in predictions]
 
 
-def print_metrics(metrics: MetricsDict, header: str = "Metrics:") -> None:
-    """Print metrics dictionary"""
-    print(header)
-    for name, value in metrics.items():
-        print(f"  {name.replace('_', ' ').title()}: {value:.4f}")
+def print_metrics(metrics: Dict, header: Optional[str] = None) -> None:
+    """
+    Print a metrics dict in a readable format.
+
+    Args:
+        metrics: Dict from classification_metrics() or hierarchical_metrics()
+        header:  Optional header string printed above metrics
+    """
+    if header:
+        print(header)
+
+    for key, value in metrics.items():
+        if key == "report":
+            print(f"\n{value}")
+        elif key == "confusion":
+            print("  confusion: (use plot_confusion_matrix() to visualise)")
+        elif isinstance(value, float):
+            print(f"  {key}: {value:.4f}")
+        else:
+            print(f"  {key}: {value}")

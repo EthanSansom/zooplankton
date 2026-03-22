@@ -13,7 +13,7 @@ in_chans = 1
 freeze_backbone = false
 
 [data]
-fraction = 0.1
+fraction = 0.2
 batch_size = 64
 num_workers = 0
 

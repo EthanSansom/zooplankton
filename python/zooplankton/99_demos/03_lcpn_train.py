@@ -108,7 +108,7 @@ history = model.fit(train_loader, valid_loader, collator)
 # Save -------------------------------------------------------------------------
 
 print("\nSaving model...")
-save_dir = model.save()
+save_dir = model.save(timestamp=False, overwrite=True)
 
 # Load -------------------------------------------------------------------------
 
