@@ -12,6 +12,7 @@ from cnn.utils import set_seed, split
 # User settings ----------------------------------------------------------------
 
 CONFIG_FILE = "demo_lcpn.toml"
+HIERARCHY_FILE = "demo_morphological.json"
 MODEL_NAME = "demo_lcpn"
 
 # Configuration ----------------------------------------------------------------
@@ -23,7 +24,7 @@ HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
-hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
+hierarchy = Hierarchy(HIERARCHIES_DIR / HIERARCHY_FILE)
 
 set_seed(cfg.train.seed)
 

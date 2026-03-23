@@ -23,6 +23,7 @@ FLAT_CONFIG_FILE = "demo_flat.toml"
 LCPN_CONFIG_FILE = "demo_lcpn.toml"
 FLAT_MODEL_NAME = "demo_flat"
 LCPN_MODEL_NAME = "demo_lcpn"
+LCPN_HIERARCHY_FILE = "demo_morphological.json"
 
 # Configuration ----------------------------------------------------------------
 
@@ -34,7 +35,7 @@ SAVE_DIR = BASE_DIR / "01_results"
 
 flat_cfg = Config(BASE_DIR / "00_configs" / FLAT_CONFIG_FILE)
 lcpn_cfg = Config(BASE_DIR / "00_configs" / LCPN_CONFIG_FILE)
-hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
+hierarchy = Hierarchy(HIERARCHIES_DIR / LCPN_HIERARCHY_FILE)
 
 assert flat_cfg.train.seed == lcpn_cfg.train.seed
 assert flat_cfg.train.epochs == lcpn_cfg.train.epochs

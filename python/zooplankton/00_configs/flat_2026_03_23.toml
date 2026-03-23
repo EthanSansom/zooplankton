@@ -1,0 +1,26 @@
+[train]
+seed = 123
+epochs = 20
+
+[validate]
+fraction = 0.1
+
+[test]
+fraction = 0.2
+
+[model]
+backbone = "resnet18"
+pretrained = true
+in_chans = 1
+
+[data]
+image_size = 128
+class_nmax = 10_000
+batch_size = 64
+num_workers = 0
+
+[optimizer]
+learning_rate = 1e-4
+
+[scheduler]
+learning_rate_min = 1e-5

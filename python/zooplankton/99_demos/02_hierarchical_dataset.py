@@ -87,7 +87,7 @@ print("\nOK - grouped classes share correct indices")
 
 print("\nHIERARCHY")
 
-hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
+hierarchy = Hierarchy(HIERARCHIES_DIR / "demo_morphological.json")
 hierarchy.print_hierarchy()
 
 print(f"\n  Nodes:   {len(hierarchy.nodes)}")

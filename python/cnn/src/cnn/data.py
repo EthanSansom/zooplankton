@@ -103,6 +103,44 @@ class ImageDataset(Dataset):
             f")"
         )
 
+    # helpers ------------------------------------------------------------------
+
+    def print_classes(self, index_to_name: Optional[Dict[int, str]] = None) -> None:
+        """
+        Print a file-tree summary of classes, directories, and image counts.
+
+        Args:
+            index_to_name: Optional mapping from class index to class name.
+                        If None, falls back to "class_{index}" for merged classes.
+        """
+        index_to_dirs = {}
+        for dir_name, index in self.class_to_index.items():
+            index_to_dirs.setdefault(index, []).append(dir_name)
+
+        items = sorted(index_to_dirs.items())
+        for i, (index, dirs) in enumerate(items):
+            dir_counts = {d: len(list((self.root / d).glob("*.tif"))) for d in dirs}
+            total = sum(dir_counts.values())
+            is_last_class = i == len(items) - 1
+
+            class_connector = "└── " if is_last_class else "├── "
+            child_prefix = "    " if is_last_class else "│   "
+
+            if len(dirs) == 1:
+                print(f"{class_connector}{dirs[0]}/ ({total})")
+            else:
+                class_name = (
+                    index_to_name.get(index, f"class_{index}")
+                    if index_to_name
+                    else f"class_{index}"
+                )
+                print(f"{class_connector}{class_name} ({total:,})")
+                for j, dir_name in enumerate(sorted(dirs)):
+                    child_connector = "└── " if j == len(dirs) - 1 else "├── "
+                    print(
+                        f"{child_prefix}{child_connector}{dir_name}/ ({dir_counts[dir_name]:,})"
+                    )
+
 
 # LCPNDataset ------------------------------------------------------------------
 

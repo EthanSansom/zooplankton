@@ -458,10 +458,15 @@ class LCPNModel(nn.Module):
         loader,
         collator: LCPNCollator,
         criterion: Optional[nn.Module] = None,
-    ) -> Tuple[Dict[str, float], List[str], List[str]]:
+    ) -> Tuple[
+        Dict[str, float], List[str], List[str], List[List[str]], List[List[str]]
+    ]:
         """
-        Evaluate on a test set, returning metrics and collected predictions.
-        This is a thin wrapper around evaluate().
+        Evaluate on a test set, returning metrics, predictions, and full paths.
+
+        Unlike evaluate(), uses predict_greedy() to collect full root-to-leaf
+        paths for all samples. Accuracy is computed over fully-labelled samples
+        only. Paths are collected for all samples, including partially-labelled.
 
         Args:
             loader:    Test data loader.
@@ -470,14 +475,45 @@ class LCPNModel(nn.Module):
 
         Returns:
             Tuple of:
-                metrics: Dict with keys "loss" and "accuracy".
-                preds:   Predicted leaf node names, one per fully-labelled sample.
-                true:    True leaf node names, one per fully-labelled sample.
+                metrics:    Dict with keys "loss" and "accuracy".
+                preds:      Predicted leaf node names, one per fully-labelled sample.
+                true:       True leaf node names, one per fully-labelled sample.
+                pred_paths: Full predicted root-to-leaf paths, one per sample.
+                true_paths: Full true root-to-node paths, one per sample.
         """
-        metrics, preds, true = self.evaluate(
-            loader, collator, criterion, desc="  Test", collect_predictions=True
-        )
-        return metrics, preds, true
+        self.eval()
+        device = self.config.metadata.device
+        total_loss = 0.0
+        all_preds, all_true = [], []
+        all_pred_paths, all_true_paths = [], []
+
+        with torch.no_grad():
+            for inputs, labels in tqdm(loader, desc="  Test", leave=False):
+                inputs = inputs.to(device)
+                labels = {k: v.to(device) for k, v in labels.items()}
+
+                outputs = self.forward(inputs)
+                total_loss += self.compute_loss(outputs, labels, criterion).item()
+
+                _, pred_paths = self.predict_greedy(inputs, outputs=outputs)
+                true_leaves, is_leaf = collator.uncollate_label_leaves(labels)
+                true_paths = collator.uncollate_label_paths(labels)
+
+                for pred_path, true_leaf, true_path, leaf in zip(
+                    pred_paths, true_leaves, true_paths, is_leaf
+                ):
+                    all_pred_paths.append(pred_path)
+                    all_true_paths.append(true_path)
+                    if leaf:
+                        all_preds.append(pred_path[-1])
+                        all_true.append(true_leaf)
+
+        n = len(all_preds)
+        metrics = {
+            "loss": total_loss / len(loader),
+            "accuracy": sum(p == t for p, t in zip(all_preds, all_true)) / n,
+        }
+        return metrics, all_preds, all_true, all_pred_paths, all_true_paths
 
     def evaluate(
         self,

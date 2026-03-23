@@ -3,5 +3,5 @@
     "yes": ["cladocera", "rotifer", "copepoda"],
     "cladocera": ["bosmina", "daphnia"],
     "copepoda": ["nauplius", "cyclopoid", "harpacticoid", "calanoid"],
-    "no": ["exoskeleton", "fiber", "plant_matter"]
+    "no": ["exoskeleton", "fiber", "plant_matter", "bubbles"]
 }
