@@ -13,7 +13,7 @@ DATA_DIR = SCRIPT_DIR.parent / "00_raw_data"
 
 # Load dataset -----------------------------------------------------------------
 
-print("\nLOADING IMAGEDATASET")
+print("\nLoading ImageDataset...")
 
 transform = transforms.Compose(
     [

@@ -10,7 +10,7 @@ from cnn.hierarchy import Hierarchy
 from cnn.models.lcpn import LCPNModel
 from cnn.utils import set_seed, split
 
-# User Settings ----------------------------------------------------------------
+# User settings ----------------------------------------------------------------
 
 CONFIG_FILE = "demo_lcpn.toml"
 MODEL_NAME = "demo_lcpn"

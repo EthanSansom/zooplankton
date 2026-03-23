@@ -12,7 +12,7 @@ from cnn.models.flat import FlatModel
 from cnn.models.lcpn import LCPNModel
 from cnn.utils import set_seed, split
 
-# User Settings ----------------------------------------------------------------
+# User settings ----------------------------------------------------------------
 
 CONFIG_FILE = "demo_lcpn_flat_backbone.toml"
 MODEL_NAME = "demo_lcpn_flat_backbone"
