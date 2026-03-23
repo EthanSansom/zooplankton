@@ -1,19 +1,19 @@
-from cnn.data import ImageDataset
-from torchvision import transforms
-from torch.utils.data import DataLoader
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
+
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+from cnn.data import ImageDataset
 
 # Setup ------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "00_raw_data"
 
-# 1. Load dataset --------------------------------------------------------------
+# Load dataset -----------------------------------------------------------------
 
-print("=" * 60)
-print("1. Loading ImageDataset")
-print("=" * 60)
+print("\nLOADING IMAGEDATASET")
 
 transform = transforms.Compose(
     [
@@ -29,11 +29,9 @@ print("\nClass to index mapping:")
 for class_name, index in dataset.class_to_index.items():
     print(f"  {index:>3}  {class_name}")
 
-# 2. Class distribution --------------------------------------------------------
+# Class distribution -----------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("2. Class distribution")
-print("=" * 60)
+print("\nCLASS DISTRIBUTION")
 
 counts = Counter(dataset.labels)
 total = len(dataset)
@@ -47,11 +45,9 @@ for class_name, index in dataset.class_to_index.items():
 print("-" * 47)
 print(f"  {'TOTAL':<23} {total:>8,}")
 
-# 3. Sample items --------------------------------------------------------------
+# Sample items -----------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("3. Sample items")
-print("=" * 60)
+print("\nSAMPLE ITEMS")
 
 for i in [0, 1, 2]:
     image, label = dataset[i]
@@ -63,11 +59,9 @@ for i in [0, 1, 2]:
     print(f"    Label:       {label} ({class_name})")
     print(f"    Path:        {dataset.image_paths[i]}")
 
-# 4. DataLoader ----------------------------------------------------------------
+# DataLoader -------------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("4. DataLoader batch")
-print("=" * 60)
+print("\nDATALOADER BATCH")
 
 loader = DataLoader(dataset, batch_size=8, shuffle=True)
 images, labels = next(iter(loader))
@@ -75,15 +69,3 @@ images, labels = next(iter(loader))
 print(f"\n  Batch image shape: {images.shape}")
 print(f"  Batch label shape: {labels.shape}")
 print(f"  Labels in batch:   {labels.tolist()}")
-
-# 5. LCPNDataset compatibility -------------------------------------------------
-
-print("\n" + "=" * 60)
-print("5. leaf_index_to_name (for LCPNDataset)")
-print("=" * 60)
-
-leaf_index_to_name = {v: k for k, v in dataset.class_to_index.items()}
-print(f"\n  leaf_index_to_name has {len(leaf_index_to_name)} entries")
-print("  Example entries:")
-for index in list(leaf_index_to_name.keys())[:5]:
-    print(f"    {index}: '{leaf_index_to_name[index]}'")

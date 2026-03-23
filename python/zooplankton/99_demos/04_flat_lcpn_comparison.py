@@ -1,22 +1,23 @@
+from pathlib import Path
+
+import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from pathlib import Path
-import torch
 
 from cnn.config import Config
+from cnn.data import ImageDataset, LCPNCollator, LCPNDataset
 from cnn.hierarchy import Hierarchy
-from cnn.models.flat import FlatModel
-from cnn.models.lcpn import LCPNModel
-from cnn.data import ImageDataset, LCPNDataset, LCPNCollator
 from cnn.metrics import (
     classification_metrics,
-    hierarchical_metrics,
     flat_predictions_to_names,
+    hierarchical_metrics,
     print_metrics,
 )
+from cnn.models.flat import FlatModel
+from cnn.models.lcpn import LCPNModel
 from cnn.utils import set_seed, split
 
-# User Settings ----------------------------------------------------------------
+# User settings ----------------------------------------------------------------
 
 FLAT_CONFIG_FILE = "demo_flat.toml"
 LCPN_CONFIG_FILE = "demo_lcpn.toml"
@@ -146,9 +147,7 @@ lcpn_test_loader = DataLoader(
 
 # Train flat model -------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("Training FlatModel")
-print("=" * 60)
+print("Training FlatModel...")
 
 flat_model = FlatModel(
     FLAT_MODEL_NAME, SAVE_DIR, n_classes=N_CLASSES, config=flat_cfg
@@ -159,9 +158,7 @@ flat_model.fit(flat_train_loader, flat_valid_loader)
 
 # Train LCPN model -------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("Training LCPNModel")
-print("=" * 60)
+print("Training LCPNModel...")
 
 lcpn_model = LCPNModel(
     LCPN_MODEL_NAME, SAVE_DIR, hierarchy=hierarchy, config=lcpn_cfg
@@ -172,9 +169,7 @@ lcpn_model.fit(lcpn_train_loader, lcpn_valid_loader, collator)
 
 # Test flat model --------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("Testing FlatModel")
-print("=" * 60)
+print("Testing FlatModel...")
 
 flat_metrics, flat_preds, flat_true = flat_model.test(flat_test_loader)
 
@@ -188,9 +183,7 @@ print_metrics(flat_cls_metrics, header="\nFlat classification metrics:")
 
 # Test LCPN model --------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("Testing LCPNModel")
-print("=" * 60)
+print("Testing LCPNModel...")
 
 lcpn_metrics, lcpn_preds, lcpn_true = lcpn_model.test(lcpn_test_loader, collator)
 lcpn_cls_metrics = classification_metrics(lcpn_true, lcpn_preds, labels=class_names)
@@ -216,9 +209,8 @@ print_metrics(lcpn_hier_metrics, header="\nLCPN hierarchical metrics:")
 
 # Summary ----------------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("Summary")
-print("=" * 60)
+print("\nSUMMARY")
+
 print(f"\n{'Metric':<25} {'Flat':>10} {'LCPN':>10}")
 print("-" * 47)
 print(

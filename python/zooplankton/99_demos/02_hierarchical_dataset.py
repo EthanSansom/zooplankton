@@ -1,10 +1,10 @@
-from torchvision import transforms
-from torch.utils.data import DataLoader
-
 from collections import Counter
 from pathlib import Path
 
-from cnn.data import ImageDataset, LCPNDataset, LCPNCollator
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+from cnn.data import ImageDataset, LCPNCollator, LCPNDataset
 from cnn.hierarchy import Hierarchy
 
 # Setup ------------------------------------------------------------------------
@@ -37,11 +37,9 @@ transform = transforms.Compose(
     ]
 )
 
-# 1. ImageDataset --------------------------------------------------------------
+# ImageDataset -----------------------------------------------------------------
 
-print("=" * 60)
-print("1. ImageDataset")
-print("=" * 60)
+print("\nIMAGEDATASET")
 
 image_dataset = ImageDataset(
     root=DATA_DIR,
@@ -85,11 +83,9 @@ assert class_to_index["fiber_hairlike"] == class_to_index["fiber_squiggly"], (
 )
 print("\nOK - grouped classes share correct indices")
 
-# 2. Hierarchy -----------------------------------------------------------------
+# Hierarchy --------------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("2. Hierarchy")
-print("=" * 60)
+print("\nHIERARCHY")
 
 hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
 hierarchy.print_hierarchy()
@@ -117,11 +113,9 @@ partial_indices = {
 print(f"\nFully labelled (leaf) indices:     {sorted(leaf_indices)}")
 print(f"Partially labelled (parent) indices: {sorted(partial_indices)}")
 
-# 3. LCPNDataset ---------------------------------------------------------------
+# LCPNDataset ------------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("3. LCPNDataset")
-print("=" * 60)
+print("\nLCPNDATASET")
 
 lcpn_dataset = LCPNDataset(
     base_dataset=image_dataset,
@@ -171,11 +165,9 @@ for i in range(len(expected_path) - 1):
     )
 print("  OK - labels terminate at copepoda, nothing below")
 
-# 4. LCPNCollator --------------------------------------------------------------
+# LCPNCollator -----------------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("4. LCPNCollator")
-print("=" * 60)
+print("\nLCPNCOLLATOR")
 
 collator = LCPNCollator(hierarchy)
 loader = DataLoader(lcpn_dataset, batch_size=16, shuffle=True, collate_fn=collator)
@@ -202,11 +194,9 @@ for node, tensor in batch_labels.items():
     n_masked = (tensor == -1).sum().item()
     print(f"  {node:<20} active={n_active:>3}  masked={n_masked:>3}")
 
-# 5. uncollate round-trip ------------------------------------------------------
+# uncollate() round-trip -------------------------------------------------------
 
-print("\n" + "=" * 60)
-print("5. uncollate round-trip")
-print("=" * 60)
+print("\nCOLLATE -> UNCOLLATE CONVERSION")
 
 paths = collator.uncollate_label_paths(batch_labels)
 leaves, is_leaf = collator.uncollate_label_leaves(batch_labels)
@@ -229,7 +219,3 @@ for i, (path, leaf) in enumerate(zip(paths, is_leaf)):
         )
 print("OK - all partial samples terminate at internal nodes")
 print("OK - all leaf samples terminate at leaf nodes")
-
-print("\n" + "=" * 60)
-print("All tests passed.")
-print("=" * 60)

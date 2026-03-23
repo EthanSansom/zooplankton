@@ -1,25 +1,29 @@
-from torch.utils.data import DataLoader
-from torchvision import transforms
 from pathlib import Path
 
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
 from cnn.config import Config
-from cnn.models.flat import FlatModel
-from cnn.data import ImageDataset
+from cnn.data import ImageDataset, LCPNCollator, LCPNDataset
+from cnn.hierarchy import Hierarchy
+from cnn.models.lcpn import LCPNModel
 from cnn.utils import set_seed, split
 
-# User Settings ----------------------------------------------------------------
+# User settings ----------------------------------------------------------------
 
-CONFIG_FILE = "demo_flat.toml"
-MODEL_NAME = "demo_flat"
+CONFIG_FILE = "demo_lcpn.toml"
+MODEL_NAME = "demo_lcpn"
 
 # Configuration ----------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
 BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "00_raw_data"
+HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
+hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological.json")
 
 set_seed(cfg.train.seed)
 
@@ -33,9 +37,13 @@ class_to_index = {
     "exoskeleton":      7,  "fiber_hairlike":   8,  "fiber_squiggly":   8,  "plant_matter": 9,
     "cladocera":        10, "copepoda":         11,
 }
-# fmt: on
 
-N_CLASSES = len(set(class_to_index.values()))
+node_index_to_name = {
+    0: "bosmina",   1: "daphnia",      2: "rotifer",   3: "nauplius",
+    4: "cyclopoid", 5: "harpacticoid", 6: "calanoid",  7: "exoskeleton",
+    8: "fiber",     9: "plant_matter", 10: "cladocera", 11: "copepoda",
+}
+# fmt: on
 
 # Data -------------------------------------------------------------------------
 
@@ -56,35 +64,47 @@ image_dataset = ImageDataset(
 
 print(image_dataset)
 
+train_data = LCPNDataset(image_dataset, hierarchy, node_index_to_name)
+test_data = ImageDataset(
+    root=DATA_DIR,
+    transform=transform,
+    class_to_index=class_to_index,
+)
+test_data = LCPNDataset(test_data, hierarchy, node_index_to_name)
+
 # Split ------------------------------------------------------------------------
 
-valid_size = int(len(image_dataset) * cfg.validate.fraction)
-train_size = len(image_dataset) - valid_size
-train_data, valid_data = split(image_dataset, [train_size, valid_size], cfg)
+valid_size = int(len(train_data) * cfg.validate.fraction)
+train_size = len(train_data) - valid_size
+train_data, valid_data = split(train_data, [train_size, valid_size], cfg)
+
+collator = LCPNCollator(hierarchy)
 
 train_loader = DataLoader(
     train_data,
     batch_size=cfg.data.batch_size,
     shuffle=True,
     num_workers=cfg.data.num_workers,
+    collate_fn=collator,
 )
 valid_loader = DataLoader(
     valid_data,
     batch_size=cfg.data.batch_size,
     shuffle=False,
     num_workers=cfg.data.num_workers,
+    collate_fn=collator,
 )
 
 # Train ------------------------------------------------------------------------
 
-model = FlatModel(MODEL_NAME, SAVE_DIR, n_classes=N_CLASSES, config=cfg).to(
+model = LCPNModel(MODEL_NAME, SAVE_DIR, hierarchy=hierarchy, config=cfg).to(
     cfg.metadata.device
 )
 
 print("\nModel:")
 print(model)
 
-history = model.fit(train_loader, valid_loader)
+history = model.fit(train_loader, valid_loader, collator)
 
 # Save -------------------------------------------------------------------------
 
@@ -94,7 +114,7 @@ save_dir = model.save(timestamp=False, overwrite=True)
 # Load -------------------------------------------------------------------------
 
 print("\nLoading model...")
-loaded_model = FlatModel.load(save_dir).to(cfg.metadata.device)
+loaded_model = LCPNModel.load(save_dir).to(cfg.metadata.device)
 
 print(f"Loaded: {loaded_model}")
 print(f"Epochs completed: {loaded_model.history['epochs_completed']}")
@@ -102,7 +122,7 @@ print(f"Duration: {loaded_model.history['duration_seconds']:.1f}s")
 
 # Verify weights loaded correctly
 print("\nVerifying loaded model...")
-loaded_metrics, _, _ = loaded_model.evaluate(valid_loader)
+loaded_metrics, _, _ = loaded_model.evaluate(valid_loader, collator)
 original_metrics = model.history["valid"][-1]
 
 print(f"  Original final val accuracy: {original_metrics['accuracy']:.4f}")
