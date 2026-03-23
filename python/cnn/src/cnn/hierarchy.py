@@ -101,7 +101,7 @@ class Hierarchy:
         if node is None:
             node = self.root
         print(node)
-        self._print_hierarchy_recursive_(node, prefix="", show_level=show_level)
+        self.print_hierarchy_recursive_(node, prefix="", show_level=show_level)
 
     def print_hierarchy_recursive_(self, node, prefix, show_level, is_last=True):
         """
@@ -124,7 +124,7 @@ class Hierarchy:
             print(prefix + connector + child + level)
 
             extension = "    " if is_last_child else "│   "
-            self._print_hierarchy_recursive_(
+            self.print_hierarchy_recursive_(
                 child, prefix + extension, show_level, is_last_child
             )
 
