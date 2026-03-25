@@ -127,7 +127,7 @@ class ImageDataset(Dataset):
             child_prefix = "    " if is_last_class else "│   "
 
             if len(dirs) == 1:
-                print(f"{class_connector}{dirs[0]}/ ({total})")
+                print(f"{class_connector}{dirs[0]}/ ({total:,})")
             else:
                 class_name = (
                     index_to_name.get(index, f"class_{index}")
