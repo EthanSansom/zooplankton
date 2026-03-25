@@ -14,6 +14,9 @@ from cnn.metrics import classification_metrics, hierarchical_metrics, print_metr
 
 # User settings ----------------------------------------------------------------
 
+HIERARCHY_FILE = (
+    "morphological_extended_2026_01_26.json"  # "morphological_2026_01_26.json"
+)
 CONFIG_FILE = "lcpn_2026_03_23.toml"
 MODEL_NAME = "lcpn"
 
@@ -26,12 +29,15 @@ HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
-hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological_2026_01_26.json")
+hierarchy = Hierarchy(HIERARCHIES_DIR / HIERARCHY_FILE)
 
 print("\nHiearchy:")
 hierarchy.print_hierarchy()
 
 set_seed(cfg.train.seed)
+
+print("\nConfig:")
+print(cfg)
 
 # Class mappings ---------------------------------------------------------------
 

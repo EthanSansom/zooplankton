@@ -1,0 +1,8 @@
+{
+    "root": ["yes_zooplankton", "not_zooplankton"],
+    "yes_zooplankton": ["cladocera", "rotifer", "copepoda"],
+    "cladocera": ["bosmina", "daphnia"],
+    "copepoda": ["nauplius", "cyclopoid_harpacticoid", "calanoid"],
+    "cyclopoid_harpacticoid": ["cyclopoid", "harpacticoid"],
+    "not_zooplankton": ["exoskeleton", "fiber", "plant_matter", "bubbles"]
+}

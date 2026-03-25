@@ -1,6 +1,6 @@
 [train]
 seed = 123
-epochs = 35
+epochs = 20
 
 [validate]
 fraction = 0.1
@@ -10,10 +10,10 @@ fraction = 0.2
 
 [model]
 backbone = "resnet18"
-pretrained = true
+pretrained = false
 in_chans = 1
-backbone_model = ""
-freeze_backbone = false
+backbone_model = "python/zooplankton/01_results/flat_20260323_162915"
+freeze_backbone = true
 
 [data]
 image_size = 128
