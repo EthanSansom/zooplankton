@@ -94,7 +94,7 @@ uv run zooplankton/97_experiments/flat.py
 uv run zooplankton/97_experiments/lcpn.py
 uv run zooplankton/97_experiments/lcpn_flat_backbone.py
 
-# EMNIST demos
+# EMNIST demos (data available)
 uv run emnist/99_demos/01_flat_model.py
 uv run emnist/99_demos/01_lcpn_model.py
 uv run emnist/99_demos/03_flat_lcpn_comparison.py
@@ -111,8 +111,8 @@ a trained model from its save directory in `01_results/`.
 
 ### Python
 
-Dependencies are managed with `uv`. Run the following in the terminal at
-the repo root:
+This project requires Python 3.12. Dependencies are managed with `uv`. Run the 
+following in the terminal at the repo root:
 
 ``` bash
 uv sync --project python
