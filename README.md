@@ -58,6 +58,10 @@ Currently, Zooplankton are classified by the following taxonomic hierarchy.
 
 ![Zooplankton hierarchy](resources/images/zooplankton_hierarchy.png)
 
+Shown below are examples of the 11 leaf classes:
+
+![Zooplankton classes](resources/images/zooplankton_leaf_classes.png)
+
 ### Flat Classifier
 
 The flat classifier consists of a ResNet18 feature extractor and a single 
