@@ -12,7 +12,7 @@ from cnn.utils import set_seed, split
 # User settings ----------------------------------------------------------------
 
 CONFIG_FILE = "demo_lcpn.toml"
-HIERARCHY_FILE = "demo_morphological.json"
+HIERARCHY_FILE = "demo_taxonomic.json"
 MODEL_NAME = "demo_lcpn"
 
 # Configuration ----------------------------------------------------------------

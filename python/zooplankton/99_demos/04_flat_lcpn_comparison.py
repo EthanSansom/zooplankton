@@ -23,7 +23,7 @@ FLAT_CONFIG_FILE = "demo_flat.toml"
 LCPN_CONFIG_FILE = "demo_lcpn.toml"
 FLAT_MODEL_NAME = "demo_flat"
 LCPN_MODEL_NAME = "demo_lcpn"
-LCPN_HIERARCHY_FILE = "demo_morphological.json"
+LCPN_HIERARCHY_FILE = "demo_taxonomic.json"
 
 # Configuration ----------------------------------------------------------------
 

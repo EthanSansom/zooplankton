@@ -20,7 +20,6 @@ model_to_name = {
     # "lcpn_extended_hierarchy": "LCPN Classifier (Extended Hierarchy)",
 }
 
-
 # Load results -----------------------------------------------------------------
 
 rows = []

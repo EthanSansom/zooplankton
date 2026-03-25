@@ -15,7 +15,7 @@ HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
 
 flat_cfg = Config(BASE_DIR / "00_configs" / "flat_2026_03_23.toml")
 lcpn_cfg = Config(BASE_DIR / "00_configs" / "lcpn_2026_03_23.toml")
-hierarchy = Hierarchy(HIERARCHIES_DIR / "morphological_2026_01_26.json")
+hierarchy = Hierarchy(HIERARCHIES_DIR / "taxonomic_2026_01_26.json")
 
 # Class mappings ---------------------------------------------------------------
 
