@@ -49,11 +49,14 @@ python/
 
 ## Architecture (Zooplankton)
 
+See `resources/slides/presentation_2026_03_25.pdf` for a more detailed description
+of the model architectures and associated experiments.
+
 ### Hierarchy
 
 Currently, Zooplankton are classified by the following taxonomic hierarchy.
 
-![Zooplankton hierarchy](resources/zooplankton_hierarchy.png)
+![Zooplankton hierarchy](resources/images/zooplankton_hierarchy.png)
 
 ### Flat Classifier
 
@@ -61,7 +64,7 @@ The flat classifier consists of a ResNet18 feature extractor and a single
 classification head, which produces a probability distribution over all 11 
 leaf classes.
 
-![Flat classifier architecture](resources/flat_zooplankton_architecture.png)
+![Flat classifier architecture](resources/images/flat_zooplankton_architecture.png)
 
 ### LCPN Classifier
 
@@ -69,7 +72,7 @@ The LCPN classifier consists of a ResNet18 feature extractor and five classifica
 heads, one per parent node in the hierarchy. Each head produces a probability 
 distribution over its immediate children.
 
-![LCPN classifier architecture](resources/lcpn_zooplankton_architecture.png)
+![LCPN classifier architecture](resources/images/lcpn_zooplankton_architecture.png)
 
 ## Library: `cnn` package
 
