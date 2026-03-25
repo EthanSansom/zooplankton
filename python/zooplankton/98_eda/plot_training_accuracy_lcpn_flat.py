@@ -27,7 +27,7 @@ for model_id, results_dir in models.items():
 
 # Plot -------------------------------------------------------------------------
 
-fig, ax = plt.subplots(figsize=(10, 5))
+fig, ax = plt.subplots(figsize=(9, 5))
 
 for model_id, history in histories.items():
     acc = [e["accuracy"] for e in history["valid"]]

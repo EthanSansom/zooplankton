@@ -11,13 +11,13 @@ RESULTS_DIR = BASE_DIR / "01_results"
 models = {
     "flat": RESULTS_DIR / "flat_20260323_162915",
     "lcpn": RESULTS_DIR / "lcpn_20260323_171541",
-    "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_20260323_221528",
+    # "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_20260323_221528",
 }
 
 model_to_name = {
     "flat": "Flat Classifier",
     "lcpn": "LCPN Classifier",
-    "lcpn_extended_hierarchy": "LCPN Classifier (Extended Hierarchy)",
+    # "lcpn_extended_hierarchy": "LCPN Classifier (Extended Hierarchy)",
 }
 
 
