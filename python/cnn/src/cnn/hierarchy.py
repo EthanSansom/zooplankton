@@ -120,7 +120,7 @@ class Hierarchy:
         for i, child in enumerate(children):
             is_last_child = i == len(children) - 1
             connector = "└── " if is_last_child else "├── "
-            level = f" ({self.get_node_level(child)})" if show_level else ""
+            level = f" (L{self.get_node_level(child)})" if show_level else ""
             print(prefix + connector + child + level)
 
             extension = "    " if is_last_child else "│   "

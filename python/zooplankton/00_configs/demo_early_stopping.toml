@@ -1,24 +1,21 @@
 [train]
 seed = 123
-epochs = 3
+epochs = 30
 
 [validate]
-fraction = 0.1
-
-[test]
 fraction = 0.2
 
 [model]
 backbone = "resnet18"
 pretrained = true
 in_chans = 1
-backbone_model = ""
-freeze_backbone = false
 
 [data]
 image_size = 128
-class_nmax = 10_000
-batch_size = 64
+class_nmax = 500
+batch_size = 32
+mean = 0.5
+std = 0.5
 num_workers = 0
 
 [optimizer]
@@ -28,5 +25,5 @@ learning_rate = 1e-4
 learning_rate_min = 1e-5
 
 [early_stop]
-patience = 10_000_000 # ~Inf epochs
-min_delta = 0
+patience = 3
+min_delta = -0.005

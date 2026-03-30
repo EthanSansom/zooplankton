@@ -1,0 +1,6 @@
+{
+  "daphnia":     ["daphnia"],
+  "nauplius":    ["nauplius_copepod"],
+  "exoskeleton": ["exoskeleton"],
+  "bubbles":     ["bubbles"]
+}

@@ -26,3 +26,7 @@ learning_rate = 1e-5
 
 [scheduler]
 learning_rate_min = 1e-6
+
+[early_stop]
+patience = 10_000_000 # ~Inf epochs
+min_delta = 0

@@ -18,7 +18,7 @@ mean = 0.5
 std = 0.5
 batch_size = 64
 num_workers = 0
-class_nmax = 10_000
+class_nmax = 500
 test_fraction = 0.1
 
 [optimizer]
@@ -26,3 +26,7 @@ learning_rate = 1e-4
 
 [scheduler]
 learning_rate_min = 1e-5
+
+[early_stop]
+patience = 10_000_000 # ~Inf epochs
+min_delta = 0

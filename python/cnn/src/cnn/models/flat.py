@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from ..config import Config
-from ..utils import set_seed
+from ..utils import set_seed, EarlyStopper
 
 
 class FlatModel(nn.Module):
@@ -326,6 +327,8 @@ class FlatModel(nn.Module):
         n_epochs = cfg.train.epochs
         start = time.time()
 
+        best_state = None
+        early_stopper = EarlyStopper(cfg.early_stop.patience, cfg.early_stop.min_delta)
         for epoch in range(n_epochs):
             print(f"\nEpoch {epoch + 1}/{n_epochs}")
             set_seed(cfg.train.seed + epoch)
@@ -341,9 +344,26 @@ class FlatModel(nn.Module):
                 f"  Valid: loss={valid_metrics['loss']:.4f}, accuracy={valid_metrics['accuracy']:.4f}"
             )
 
+            early_stopper.step(valid_metrics["loss"])
+            if early_stopper.should_stop():
+                print(
+                    f"  Early stopping patience ({early_stopper.patience}) exceeded.\n"
+                    f"  Stopped training early at epoch {epoch + 1}."
+                )
+                break
+            elif early_stopper.is_best_epoch():
+                best_state = copy.deepcopy(self.state_dict())
+
         self.history["duration_seconds"] = time.time() - start
         self.history["end_time"] = datetime.now().isoformat()
+        self.history["stopped_early"] = early_stopper.stopped_early()
         self.history["epochs_completed"] = len(self.history["train"])
+        self.history["best_epoch"] = early_stopper.best_epoch()
+
+        # Restore model weights to the best state achieved during training
+        if best_state is not None:
+            self.load_state_dict(best_state)
+
         print(f"\nDone. ({self.history['duration_seconds']:.1f}s)")
         return self.history
 
