@@ -6,6 +6,7 @@ from torchvision import transforms
 from cnn.config import Config
 from cnn.data import ImageDataset, LCPNCollator, LCPNDataset
 from cnn.hierarchy import Hierarchy
+from cnn.label_map import LabelMap
 from cnn.models.lcpn import LCPNModel
 from cnn.utils import set_seed, split
 
@@ -13,6 +14,7 @@ from cnn.utils import set_seed, split
 
 CONFIG_FILE = "demo_lcpn.toml"
 HIERARCHY_FILE = "demo_taxonomic.json"
+LABEL_MAP_FILE = "demo_lcpn.json"
 MODEL_NAME = "demo_lcpn"
 
 # Configuration ----------------------------------------------------------------
@@ -21,30 +23,20 @@ SCRIPT_DIR = Path(__file__).parent
 BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "00_raw_data"
 HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
+LABEL_MAPS_DIR = BASE_DIR / "00_label_maps"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
 hierarchy = Hierarchy(HIERARCHIES_DIR / HIERARCHY_FILE)
+label_map = LabelMap(LABEL_MAPS_DIR / LABEL_MAP_FILE)
 
 set_seed(cfg.train.seed)
 
-# Class mappings ---------------------------------------------------------------
+print("\nLabels:")
+print(label_map)
 
-# fmt: off
-class_to_index = {
-    "bosminidae":       0,  "eubosmina":        0,  "daphnia":          1,
-    "rotifer":          2,  "trichocerca":      2,  "conochilus":       2,  "kellicottia":  2,
-    "nauplius_copepod": 3,  "cyclopoid":        4,  "harpacticoid":     5,  "calanoid":     6,
-    "exoskeleton":      7,  "fiber_hairlike":   8,  "fiber_squiggly":   8,  "plant_matter": 9,
-    "cladocera":        10, "copepoda":         11,
-}
-
-node_index_to_name = {
-    0: "bosmina",   1: "daphnia",      2: "rotifer",   3: "nauplius",
-    4: "cyclopoid", 5: "harpacticoid", 6: "calanoid",  7: "exoskeleton",
-    8: "fiber",     9: "plant_matter", 10: "cladocera", 11: "copepoda",
-}
-# fmt: on
+print("\nHierarchy:")
+hierarchy.print_hierarchy()
 
 # Data -------------------------------------------------------------------------
 
@@ -59,19 +51,20 @@ transform = transforms.Compose(
 image_dataset = ImageDataset(
     root=DATA_DIR,
     transform=transform,
-    class_to_index=class_to_index,
+    class_to_index=label_map.class_to_index,
     class_to_nmax=cfg.data.class_nmax,
 )
 
+print("\nImageDataset:")
 print(image_dataset)
 
-train_data = LCPNDataset(image_dataset, hierarchy, node_index_to_name)
+train_data = LCPNDataset(image_dataset, hierarchy, label_map.index_to_label)
 test_data = ImageDataset(
     root=DATA_DIR,
     transform=transform,
-    class_to_index=class_to_index,
+    class_to_index=label_map.class_to_index,
 )
-test_data = LCPNDataset(test_data, hierarchy, node_index_to_name)
+test_data = LCPNDataset(test_data, hierarchy, label_map.index_to_label)
 
 # Split ------------------------------------------------------------------------
 
@@ -105,6 +98,7 @@ model = LCPNModel(MODEL_NAME, SAVE_DIR, hierarchy=hierarchy, config=cfg).to(
 print("\nModel:")
 print(model)
 
+print("\nTraining model...")
 history = model.fit(train_loader, valid_loader, collator)
 
 # Save -------------------------------------------------------------------------

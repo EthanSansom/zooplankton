@@ -29,6 +29,7 @@ python/
 │   ├── config.py
 │   ├── data.py
 │   ├── hierarchy.py
+│   ├── label_map.py
 │   ├── metrics.py
 │   └── utils.py
 ├── emnist/             # EMNIST demos
@@ -40,6 +41,7 @@ python/
 └── zooplankton/        # Zooplankton demos and experiments
     ├── 00_configs/
     ├── 00_hierarchies/
+    ├── 00_label_maps/
     ├── 00_raw_data/    # gitignored
     ├── 01_results/     # gitignored
     ├── 97_experiments/
@@ -87,6 +89,7 @@ for external use.
 - `config.py`: `Config` class for loading and accessing TOML-based hyperparameter files.
 - `data.py`: `ImageDataset` for flat models; `LCPNDataset` and `LCPNCollator` for hierarchical labelling and batching.
 - `hierarchy.py`: `Hierarchy` class for loading, validating, and querying JSON hierarchy files.
+- `label_map.py`: `LabelMap` class for loading, validating, and querying JSON directory to class label mapping files.
 - `metrics.py`: Miscellaneous flat and hierarchical classifier metrics functions.
 - `utils.py`: `set_seed` and `split` for reproducible train/validation/test partitioning.
 - `models/flat.py`: `FlatModel`, a flat CNN classifier built on a pretrained [timm](https://pypi.org/project/timm/) backbone (ResNet18 default). 

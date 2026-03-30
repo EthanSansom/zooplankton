@@ -98,8 +98,9 @@ class ImageDataset(Dataset):
         return (
             f"ImageDataset(\n"
             f"  root={self.root},\n"
+            f"  n_directories={len(self.class_to_index.values())},\n"
             f"  n_samples={len(self)},\n"
-            f"  n_classes={len(self.class_to_index)},\n"
+            f"  n_classes={len(set(self.class_to_index.values()))},\n"
             f")"
         )
 

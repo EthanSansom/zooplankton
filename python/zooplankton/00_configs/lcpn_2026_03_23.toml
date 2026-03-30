@@ -1,6 +1,6 @@
 [train]
 seed = 123
-epochs = 35
+epochs = 3
 
 [validate]
 fraction = 0.1

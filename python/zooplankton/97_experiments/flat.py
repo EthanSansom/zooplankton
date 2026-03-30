@@ -6,6 +6,7 @@ from torchvision import transforms
 
 from cnn.config import Config
 from cnn.data import ImageDataset
+from cnn.label_map import LabelMap
 from cnn.models.flat import FlatModel
 from cnn.utils import set_seed, split
 
@@ -14,6 +15,7 @@ from cnn.metrics import classification_metrics, flat_predictions_to_names, print
 # User settings ----------------------------------------------------------------
 
 CONFIG_FILE = "flat_2026_03_23.toml"
+LABEL_MAP_FILE = "flat.json"
 MODEL_NAME = "flat"
 
 # Configuration ----------------------------------------------------------------
@@ -21,52 +23,13 @@ MODEL_NAME = "flat"
 SCRIPT_DIR = Path(__file__).parent
 BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "00_raw_data"
+LABEL_MAPS_DIR = BASE_DIR / "00_label_maps"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
+label_map = LabelMap(LABEL_MAPS_DIR / LABEL_MAP_FILE)
 
 set_seed(cfg.train.seed)
-
-# Class mappings ---------------------------------------------------------------
-
-# Maps per-class directories under `zooplankton/01_raw_data` to a class index.
-# Samples with the same index, from different directories, are merged into one
-# class for training and testing purposes.
-#
-# Partially labelled classes, e.g. "cladocera" or "zooplankton", are excluded
-# from the training and testing of the FlatModel.
-
-# fmt: off
-class_to_index = {
-    # Parent node: "cladocera"
-    "bosminidae": 0, "eubosmina": 0, # Merged into: "bosmina"
-    "daphnia": 1,
-
-    # Parent node: "yes_zooplankton"
-    "rotifer": 2,
-    "trichocerca": 2, "conochilus": 2, "kellicottia": 2, # Merged into: "rotifer"
-    
-    # Parent node: "copepoda"
-    "nauplius_copepod": 3,
-    "cyclopoid": 4,
-    "harpacticoid": 5,
-    "calanoid": 6,
-
-    # Parent node: "not_zooplankton"
-    "exoskeleton": 7,
-    "fiber_hairlike": 8, "fiber_squiggly": 8, # Merged into: "fiber"
-    "plant_matter": 9,
-    "bubbles": 10,
-}
-
-index_to_class_name = {
-    0: "bosmina", 1: "daphnia", 2: "rotifer", 3: "nauplius",
-    4: "cyclopoid", 5: "harpacticoid", 6: "calanoid", 7: "exoskeleton",
-    8: "fiber", 9: "plant_matter", 10: "bubbles",
-}
-# fmt: on
-
-N_CLASSES = len(set(class_to_index.values()))
 
 # Data -------------------------------------------------------------------------
 
@@ -83,7 +46,7 @@ transform = transforms.Compose(
 image_dataset = ImageDataset(
     root=DATA_DIR,
     transform=transform,
-    class_to_index=class_to_index,
+    class_to_index=label_map.class_to_index,
     class_to_nmax=cfg.data.class_nmax,
 )
 
@@ -91,7 +54,7 @@ print("\nImageDataset:")
 print(image_dataset)
 
 print("\nClasses:")
-image_dataset.print_classes(index_to_class_name)
+image_dataset.print_classes(label_map.index_to_label)
 
 # Split ------------------------------------------------------------------------
 
@@ -129,7 +92,7 @@ test_loader = DataLoader(
 
 # Train ------------------------------------------------------------------------
 
-model = FlatModel(MODEL_NAME, SAVE_DIR, n_classes=N_CLASSES, config=cfg).to(
+model = FlatModel(MODEL_NAME, SAVE_DIR, n_classes=label_map.n_classes(), config=cfg).to(
     cfg.metadata.device
 )
 
@@ -149,8 +112,8 @@ save_dir = model.save(timestamp=True, overwrite=False)
 print("\nTesting model...")
 model.eval()
 test_metrics, preds, true = model.test(test_loader)
-pred_names = flat_predictions_to_names(preds, index_to_class_name)
-true_names = flat_predictions_to_names(true, index_to_class_name)
+pred_names = flat_predictions_to_names(preds, label_map.index_to_label)
+true_names = flat_predictions_to_names(true, label_map.index_to_label)
 
 print("\nTest Metrics:")
 print_metrics(test_metrics)

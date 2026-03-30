@@ -7,6 +7,7 @@ from torchvision import transforms
 from cnn.config import Config
 from cnn.data import ImageDataset, LCPNDataset, LCPNCollator
 from cnn.hierarchy import Hierarchy
+from cnn.label_map import LabelMap
 from cnn.models.lcpn import LCPNModel
 from cnn.utils import set_seed, split
 
@@ -14,7 +15,8 @@ from cnn.metrics import classification_metrics, hierarchical_metrics, print_metr
 
 # User settings ----------------------------------------------------------------
 
-HIERARCHY_FILE = "taxonomic_extended_2026_01_26.json"  # "taxonomic_2026_01_26.json"
+HIERARCHY_FILE = "taxonomic_2026_01_26.json"
+LABEL_MAP_FILE = "nodes_2026_01_26.json"
 CONFIG_FILE = "lcpn_2026_03_23.toml"
 MODEL_NAME = "lcpn"
 
@@ -24,75 +26,20 @@ SCRIPT_DIR = Path(__file__).parent
 BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "00_raw_data"
 HIERARCHIES_DIR = BASE_DIR / "00_hierarchies"
+LABEL_MAPS_DIR = BASE_DIR / "00_label_maps"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
 hierarchy = Hierarchy(HIERARCHIES_DIR / HIERARCHY_FILE)
+label_map = LabelMap(LABEL_MAPS_DIR / LABEL_MAP_FILE)
 
 print("\nHiearchy:")
 hierarchy.print_hierarchy()
 
-set_seed(cfg.train.seed)
-
 print("\nConfig:")
 print(cfg)
 
-# Class mappings ---------------------------------------------------------------
-
-# Maps per-class directories under `zooplankton/00_raw_data` to a node index.
-# Samples with the same index, from different directories, are merged into one
-# class for training and testing purposes.
-#
-# Partially labelled classes (cladocera, copepoda) are included with their
-# own index. These classes correspond to a parent node on the hierarchy, while
-# fully labelled classes correspond to a leaf node.
-
-# fmt: off
-class_to_index = {
-    # Parent node: "yes_zooplankton"
-    "cladocera": 0,  # Partially labelled images
-
-    # Parent node: "cladocera"
-    "bosminidae": 1, "eubosmina": 1,  # Merged into: "bosmina"
-    "daphnia": 2,
-
-    # Parent node: "yes_zooplankton"
-    "rotifer": 3,
-    "trichocerca": 3, "conochilus": 3, "kellicottia": 3,  # Merged into: "rotifer"
-
-    # Parent node: "yes_zooplankton"
-    "copepoda": 4,  # Partially labelled images
-
-    # Parent node: "copepoda"
-    "nauplius_copepod": 5,
-    "cyclopoid": 6,
-    "harpacticoid": 7,
-    "calanoid": 8,
-
-    # Parent node: "not_zooplankton"
-    "exoskeleton": 9,
-    "fiber_hairlike": 10, "fiber_squiggly": 10,  # Merged into: "fiber"
-    "plant_matter": 11,
-    "bubbles": 12,
-}
-
-node_index_to_name = {
-    # Internal nodes (parent: yes_zooplankton)
-    0: "cladocera", 4: "copepoda",
-
-    # Leaf nodes (parent: cladocera)
-    1: "bosmina", 2: "daphnia",
-
-    # Leaf nodes (parent: yes_zooplankton)
-    3: "rotifer",
-
-    # Leaf nodes (parent: copepoda)
-    5: "nauplius", 6: "cyclopoid", 7: "harpacticoid", 8: "calanoid",
-
-    # Leaf nodes (parent: not_zooplankton)
-    9: "exoskeleton", 10: "fiber", 11: "plant_matter", 12: "bubbles",
-}
-# fmt: on
+set_seed(cfg.train.seed)
 
 # Data -------------------------------------------------------------------------
 
@@ -109,7 +56,7 @@ transform = transforms.Compose(
 image_dataset = ImageDataset(
     root=DATA_DIR,
     transform=transform,
-    class_to_index=class_to_index,
+    class_to_index=label_map.class_to_index,
     class_to_nmax=cfg.data.class_nmax,
 )
 
@@ -117,12 +64,12 @@ print("\nImageDataset:")
 print(image_dataset)
 
 print("\nClasses:")
-image_dataset.print_classes(node_index_to_name)
+image_dataset.print_classes(label_map.index_to_label)
 
 lcpn_dataset = LCPNDataset(
     base_dataset=image_dataset,
     hierarchy=hierarchy,
-    node_index_to_name=node_index_to_name,
+    node_index_to_name=label_map.index_to_label,
 )
 
 collator = LCPNCollator(hierarchy)

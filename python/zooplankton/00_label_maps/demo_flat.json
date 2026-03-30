@@ -1,0 +1,13 @@
+{
+  "bosmina": ["bosminidae", "eubosmina"],
+  "daphnia": ["daphnia"],
+  "rotifer": ["rotifer", "trichocerca", "conochilus", "kellicottia"],
+  "nauplius": ["nauplius_copepod"],
+  "cyclopoid": ["cyclopoid"],
+  "harpacticoid": ["harpacticoid"],
+  "calanoid": ["calanoid"],
+  "exoskeleton": ["exoskeleton"],
+  "fiber": ["fiber_hairlike", "fiber_squiggly"],
+  "plant_matter": ["plant_matter"],
+  "bubbles": ["bubbles"]
+}

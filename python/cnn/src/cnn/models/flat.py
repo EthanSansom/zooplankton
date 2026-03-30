@@ -327,7 +327,7 @@ class FlatModel(nn.Module):
         start = time.time()
 
         for epoch in range(n_epochs):
-            print(f"Epoch {epoch + 1}/{n_epochs}")
+            print(f"\nEpoch {epoch + 1}/{n_epochs}")
             set_seed(cfg.train.seed + epoch)
 
             train_loss = self.train_epoch(train_loader, optimizer, criterion)

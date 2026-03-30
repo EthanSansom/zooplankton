@@ -5,12 +5,14 @@ from torchvision import transforms
 
 from cnn.config import Config
 from cnn.data import ImageDataset
+from cnn.label_map import LabelMap
 from cnn.models.flat import FlatModel
 from cnn.utils import set_seed, split
 
 # User settings ----------------------------------------------------------------
 
 CONFIG_FILE = "demo_flat.toml"
+LABEL_MAP_FILE = "demo_flat.json"
 MODEL_NAME = "demo_flat"
 
 # Configuration ----------------------------------------------------------------
@@ -18,25 +20,16 @@ MODEL_NAME = "demo_flat"
 SCRIPT_DIR = Path(__file__).parent
 BASE_DIR = SCRIPT_DIR.parent
 DATA_DIR = BASE_DIR / "00_raw_data"
+LABEL_MAPS_DIR = BASE_DIR / "00_label_maps"
 SAVE_DIR = BASE_DIR / "01_results"
 
 cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
+label_map = LabelMap(LABEL_MAPS_DIR / LABEL_MAP_FILE)
 
 set_seed(cfg.train.seed)
 
-# Class mappings ---------------------------------------------------------------
-
-# fmt: off
-class_to_index = {
-    "bosminidae":       0,  "eubosmina":        0,  "daphnia":          1,
-    "rotifer":          2,  "trichocerca":      2,  "conochilus":       2,  "kellicottia":  2,
-    "nauplius_copepod": 3,  "cyclopoid":        4,  "harpacticoid":     5,  "calanoid":     6,
-    "exoskeleton":      7,  "fiber_hairlike":   8,  "fiber_squiggly":   8,  "plant_matter": 9,
-    "cladocera":        10, "copepoda":         11,
-}
-# fmt: on
-
-N_CLASSES = len(set(class_to_index.values()))
+print("\nLabel map:")
+print(label_map)
 
 # Data -------------------------------------------------------------------------
 
@@ -51,10 +44,11 @@ transform = transforms.Compose(
 image_dataset = ImageDataset(
     root=DATA_DIR,
     transform=transform,
-    class_to_index=class_to_index,
+    class_to_index=label_map.class_to_index,
     class_to_nmax=cfg.data.class_nmax,
 )
 
+print("\nImageDataset:")
 print(image_dataset)
 
 # Split ------------------------------------------------------------------------
@@ -78,13 +72,14 @@ valid_loader = DataLoader(
 
 # Train ------------------------------------------------------------------------
 
-model = FlatModel(MODEL_NAME, SAVE_DIR, n_classes=N_CLASSES, config=cfg).to(
+model = FlatModel(MODEL_NAME, SAVE_DIR, n_classes=label_map.n_classes(), config=cfg).to(
     cfg.metadata.device
 )
 
 print("\nModel:")
 print(model)
 
+print("\nTraining model...")
 history = model.fit(train_loader, valid_loader)
 
 # Save -------------------------------------------------------------------------
