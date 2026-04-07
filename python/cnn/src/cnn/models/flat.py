@@ -345,7 +345,7 @@ class FlatModel(nn.Module):
             )
 
             early_stopper.step(valid_metrics["loss"])
-            if early_stopper.should_stop():
+            if epoch > cfg.early_stop.min_epochs and early_stopper.should_stop():
                 print(
                     f"  Early stopping patience ({early_stopper.patience}) exceeded.\n"
                     f"  Stopped training early at epoch {epoch + 1}."
