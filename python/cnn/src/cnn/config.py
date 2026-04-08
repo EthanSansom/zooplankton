@@ -45,9 +45,18 @@ class Config:
         self._set_device()
 
     def __repr__(self):
-        """Return a string representation of all non-private config attributes."""
-        attrs = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
-        return f"Config({attrs})"
+        """Return a TOML-like string representation of all non-private config attributes."""
+        lines = []
+        for key, value in self.__dict__.items():
+            if key.startswith("_") or key == "config_path":
+                continue
+            if isinstance(value, SimpleNamespace):
+                lines.append(f"\n[{key}]")
+                for k, v in vars(value).items():
+                    lines.append(f"{k} = {v!r}")
+            else:
+                lines.append(f"{key} = {value!r}")
+        return "\n".join(lines).strip()
 
     def to_dict(self) -> dict:
         """

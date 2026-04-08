@@ -9,8 +9,8 @@ BASE_DIR = Path("python/zooplankton")
 RESULTS_DIR = BASE_DIR / "01_results"
 
 models = {
-    "flat": RESULTS_DIR / "flat_20260323_162915",
-    "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_20260323_221528",
+    "flat": RESULTS_DIR / "flat_20260407_191102",
+    "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_extended_20260407_232625",
 }
 
 model_to_name = {
@@ -60,7 +60,7 @@ for model_id, history in histories.items():
         alpha=0.6,
     )
 
-ax.set_xticks(range(1, max_epochs + 1))
+ax.set_xticks(range(1, max_epochs + 1, 2))
 ax.set_xlabel("Epoch")
 ax.set_ylabel("Validation Accuracy")
 ax.set_title("Flat vs. LCPN (Extended Hierarchy): Validation Accuracy")

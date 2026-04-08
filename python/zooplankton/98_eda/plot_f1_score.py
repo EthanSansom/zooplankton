@@ -20,9 +20,9 @@ ZOOPLANKTON_CLASSES = [
 ]
 
 models = {
-    "flat": RESULTS_DIR / "flat_20260323_162915",
-    "lcpn": RESULTS_DIR / "lcpn_20260323_171541",
-    "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_20260323_221528",
+    "flat": RESULTS_DIR / "flat_20260407_191102",
+    "lcpn": RESULTS_DIR / "lcpn_20260407_211606",
+    "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_extended_20260407_232625",
 }
 
 model_to_name = {

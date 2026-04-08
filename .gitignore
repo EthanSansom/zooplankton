@@ -4,6 +4,9 @@
 .httr-oauth
 .DS_Store
 .quarto
+__pycache__/
+*.py[cod]
+*$py.class
 python/emnist/00_raw_data/**
 python/emnist/01_results/**
 python/zooplankton/00_raw_data/**

@@ -14,7 +14,7 @@ from cnn.metrics import classification_metrics, flat_predictions_to_names, print
 
 # User settings ----------------------------------------------------------------
 
-CONFIG_FILE = "flat_2026_03_23.toml"
+CONFIG_FILE = "flat_2026_04_07.toml"
 LABEL_MAP_FILE = "flat.json"
 MODEL_NAME = "flat"
 
@@ -30,6 +30,9 @@ cfg = Config(BASE_DIR / "00_configs" / CONFIG_FILE)
 label_map = LabelMap(LABEL_MAPS_DIR / LABEL_MAP_FILE)
 
 set_seed(cfg.train.seed)
+
+print("\nConfig:")
+print(cfg)
 
 # Data -------------------------------------------------------------------------
 

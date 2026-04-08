@@ -9,8 +9,8 @@ BASE_DIR = Path("python/zooplankton")
 RESULTS_DIR = BASE_DIR / "01_results"
 
 models = {
-    "flat": RESULTS_DIR / "flat_20260323_162915",
-    "lcpn": RESULTS_DIR / "lcpn_20260323_171541",
+    "flat": RESULTS_DIR / "flat_20260407_191102",
+    "lcpn": RESULTS_DIR / "lcpn_20260407_211606",
     # "lcpn_extended_hierarchy": RESULTS_DIR / "lcpn_20260323_221528",
 }
 

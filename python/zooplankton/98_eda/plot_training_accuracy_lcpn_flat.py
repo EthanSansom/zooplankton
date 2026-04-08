@@ -9,8 +9,8 @@ BASE_DIR = Path("python/zooplankton")
 RESULTS_DIR = BASE_DIR / "01_results"
 
 models = {
-    "flat": RESULTS_DIR / "flat_20260323_162915",
-    "lcpn": RESULTS_DIR / "lcpn_20260323_171541",
+    "flat": RESULTS_DIR / "flat_20260407_191102",
+    "lcpn": RESULTS_DIR / "lcpn_20260407_211606",
 }
 
 model_to_name = {
@@ -57,7 +57,7 @@ for model_id, history in histories.items():
     )
 
 n_epochs = max(len(h["valid"]) for h in histories.values())
-ax.set_xticks(range(1, n_epochs + 1))
+ax.set_xticks(range(1, n_epochs + 1, 2))
 ax.set_xlabel("Epoch")
 ax.set_ylabel("Validation Accuracy")
 ax.set_title("Flat vs. LCPN: Validation Accuracy")

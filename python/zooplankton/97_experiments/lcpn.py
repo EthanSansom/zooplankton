@@ -15,9 +15,9 @@ from cnn.metrics import classification_metrics, hierarchical_metrics, print_metr
 
 # User settings ----------------------------------------------------------------
 
-HIERARCHY_FILE = "taxonomic_2026_01_26.json"
+HIERARCHY_FILE = "taxonomic_extended_2026_01_26.json"  # "taxonomic_2026_01_26.json"
 LABEL_MAP_FILE = "nodes_2026_01_26.json"
-CONFIG_FILE = "lcpn_2026_03_23.toml"
+CONFIG_FILE = "lcpn_2026_04_07.toml"
 MODEL_NAME = "lcpn"
 
 # Configuration ----------------------------------------------------------------
