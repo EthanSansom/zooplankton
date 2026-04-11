@@ -1,0 +1,384 @@
+---
+title: "Hierarchical CNN Classification of Freshwater Zooplankton"
+author: "Ethan Sansom"
+date: today
+format:
+  pdf:
+    documentclass: article
+    fontsize: 11pt
+    geometry: margin=1in
+    number-sections: true
+    colorlinks: true
+    fig-pos: "H"
+    tbl-cap-location: top
+    fig-cap-location: bottom
+execute:
+  echo: false
+  warning: false
+  message: false
+bibliography: references.bib
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(here)
+library(jsonlite)
+library(knitr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(scales)
+library(ggplot2)
+
+PROJECT_DIR <- here::here()
+ZOOPLANKTON_DATA_DIR <- file.path(PROJECT_DIR, "python", "zooplankton", "00_raw_data")
+REPORT_DATA_DIR <- file.path(PROJECT_DIR, "resources", "00_data")
+REPORT_IMAGE_DIR <- file.path(PROJECT_DIR, "resources", "00_images")
+
+include_image <- function(file) knitr::include_graphics(file.path(REPORT_IMAGE_DIR, file))
+
+int <- function(x) format(x, big.mark = ",")
+num <- function(x) format(x, big.mark = ",", digits = 2L)
+prc <- function(x) paste0(format(x * 100, digits = 2L), "%")
+```
+
+# Introduction
+
+<!-- TODO: Squash into one paragraph and possibly shorten --->
+
+The surveying of zooplankton populations is a key component of the Ontario Ministry of Natural Resources' (OMNR) fisheries monitoring program [@omnr_monitoring]. Zooplankton monitoring in particular
+is essential for accessing the health of freshwater ecosystems. For instance,
+the spread of invasive dreissenid mussels in the Laurentian Great Lakes^[The Laurentian Great Lakes will be referred to as the "Great Lakes" hereafter.] over 2000-2019 has been attributed with zooplankton biomass reductions, contributing to declining whitefish populations [@ebener2021whitefish].
+
+Traditional zooplankton surveying relies on manual classification of sampled zooplankton
+and non-zooplankton particles by trained taxonomists. More recent methods in machine learning, such as Convolutional Neural Networks (CNNs), offer a more efficient automated alternative. OMNR has explored several such methods, including a multi-class CNN and a hierarchical branch CNN (BCNN) for classifying images as zooplankton species or non-zooplankton objects, both achieving accuracies exceeding 95% on held-out test images [@sofia_zoop; @sofia_hiernet].
+
+This report evaluates two alternative hierarchical CNN architectures based on the 
+Local Classifier Per Parent Node (LCPN) approach [@silla2011survey] against a flat CNN baseline 
+for classifying images of freshwater zooplankton and non-zooplankton debris. We examine whether a taxonomic hierarchy, and a targeted extension of it, improves classification performance over the baseline, particularly for visually similar species such as Harpacticoid and Cyclopoid copepods.
+
+# Data and Data Processing
+
+## Dataset
+
+The dataset used for model training and evaluation is a non-public collection of
+pre-labelled images of freshwater zooplankton and non-zooplantkon debris sampled
+from Ontraio lakes including Lakes Erie, Simcoe, and Huron. The images are taken 
+using FlowCam devices, which capture high resolution microscopic images of particles 
+from water samples [@fluidimaging], and are provided by the OMNR.
+
+Raw images are provided as both mosiacs, single `.tif` files containing multiple
+labelled sample images, and as labelled `.tif` files of individual zooplankton
+and non-zooplankton samples. The labels of the provided images are encoded in their
+parent directories, e.g. images of bubbles are contained within a `bubbles/` directory. 
+A Python script available from @sofia_hiernet was used to extract individual samples from 
+the mosiac images.
+
+```{r}
+#| label: tbl-class-mapping
+#| tbl-cap: "**Raw Image Directories and Corresponding Classes**"
+#| cache: true
+
+count_tifs <- function(dir_name) {
+  path <- file.path(ZOOPLANKTON_DATA_DIR, dir_name)
+  if (!dir.exists(path)) return(NA)
+  length(list.files(path, pattern = "\\.tif$", ignore.case = TRUE))
+}
+
+mapping <- read_json(file.path(REPORT_DATA_DIR, "raw_to_leaf_class_map.json"))
+dir_to_flat_class <- tibble(
+  final_class = rep(names(mapping), lengths(mapping)),
+  raw_dir = unlist(mapping, use.names = FALSE),
+  image_count = sapply(raw_dir, count_tifs),
+) |>
+  mutate(
+    final_class = final_class |> str_replace("_", " ") |> str_to_title()
+  )
+
+N_TOTAL_IMAGES <- sum(dir_to_flat_class$image_count)
+N_PARTIAL_CLADOCERA <- count_tifs("cladocera")
+N_PARTIAL_COPEPODA <- count_tifs("copepoda")
+N_PARTIAL_IMAGES <- N_PARTIAL_CLADOCERA + N_PARTIAL_COPEPODA
+N_RAW_CLASSES <- nrow(dir_to_flat_class)
+N_FINAL_CLASSES <- n_distinct(dir_to_flat_class$final_class)
+
+kable(
+  dir_to_flat_class, 
+  col.names = c("Class", "Raw Directory", "Image Count"),
+  align = c("l", "l", "r"),
+  format.args = list(big.mark = ',')
+)
+``` 
+
+Following image extraction from mosaics, the raw dataset contains `r int(N_TOTAL_IMAGES)` 
+fully labelled images across `r N_RAW_CLASSES` directories, which are consolidated into the `r N_FINAL_CLASSES` 
+final classes used for model training (@tbl-class-mapping). The `r N_FINAL_CLASSES` final classes 
+comprise the leaf nodes of a taxonomic hierarchy provided by OMNR, which organises 
+freshwater zooplankton and non-zooplankton particles into a four-level tree structure 
+(@fig-hierarchy).
+
+```{r}
+#| label: fig-hierarchy
+#| fig-cap: "**Taxonomic Hierarchy of Freshwater Zooplankton.** Hierarchy provided 
+#|   by OMNR, organising zooplankton and non-zooplankton particles into a four-level 
+#|   tree structure. Leaf nodes correspond to the 11 classes used for model training and evaluation."
+#| dpi: 300
+#| out-width: "80%"
+#| fig-align: "center"
+
+include_image("zooplankton_hierarchy.svg")
+```
+
+An image from each of the `r N_FINAL_CLASSES` leaf classes is shown below in @fig-leaf-classes.
+
+```{r}
+#| label: fig-leaf-classes
+#| fig-cap: "**Zooplankton and Non-Zooplankton Leaf Classes.**  FlowCam images 
+#|   for each of the 11 leaf classes used for model training. 
+#|   The first 7 classes are species of zooplankton and the last 4 are 
+#|   non-zooplankton particles."
+#| dpi: 300
+#| out-width: "100%"
+#| fig-align: "center"
+
+knitr::include_graphics(file.path(REPORT_IMAGE_DIR, "zooplankton_leaf_classes.png"))
+```
+
+Additionally, the raw dataset contains two directories, `cladocera/` and
+`copepoda/`, containing partially labelled images corresponding to parent nodes
+on the hierarchy (@tbl-partial-class-mapping).
+
+```{r}
+#| label: tbl-partial-class-mapping
+#| tbl-cap: "**Raw Image Directories and Corresponding Partial Classes**"
+#| cache: true
+
+dir_to_partial_class <- tibble(
+    final_class = c("Cladocera", "Copepoda"),
+    raw_dir = tolower(final_class),
+    image_count = c(N_PARTIAL_CLADOCERA, N_PARTIAL_COPEPODA)
+)
+dir_to_lcpn_class <- bind_rows(dir_to_flat_class, dir_to_partial_class)
+
+kable(
+  dir_to_partial_class, 
+  col.names = c("Class", "Raw Directory", "Image Count"),
+  align = c("l", "l", "r"),
+  format.args = list(big.mark = ',')
+)
+```
+
+These images are included in the training of the hierarchical CNN models, but
+are excluded from the training of the flat baseline model and are excluded from 
+the validation and testing of all models.
+
+## Preprocessing
+
+Prior to model training and evaluation, all images are converted to greyscale on
+the basis that zooplankton identification relies primarily on morphological features, e.g.
+body shape, appendage structure, and silhouette, rather than colour, consistent
+with how taxonomists manually classify zooplankton specimens [@leow2015copepods].
+Additionally, conversion from 3 Red-Green-Blue (RGB) colour channels to a single
+greyscale channel reduces image size by two-thirds, lowering memory requirements
+and computational cost during training.
+
+To improve model generalisation, three augmentations are applied randomly to
+training images: a horizontal flip, vertical flip, and random 90 degree rotation.
+These transformations are motivated by the lack of a canonical orientation of
+particles captured by FlowCam devices. Unlike images of a human, for instance,
+which typically show a person sitting or standing upright, zooplankton specimens
+submitted for classification may appear in any orientation. None of these
+augmentations are applied at validation or test time.
+
+## Data Splitting
+
+```{r}
+#| label: class-counts
+#| include: false
+
+CAP <- 10000
+TRAIN_FRAC <- 0.70
+VAL_FRAC <- 0.10
+TEST_FRAC <- 0.20
+
+class_counts <- dir_to_lcpn_class |>
+  mutate(capped_dir = pmin(image_count, CAP)) |>
+  summarise(
+    raw_count = sum(image_count),
+    capped = sum(capped_dir),
+    .by = final_class
+  ) |>
+  mutate(
+    n_train = floor(capped * TRAIN_FRAC),
+    n_val = floor(capped * VAL_FRAC),
+    n_test = capped - n_train - n_val
+  )
+```
+
+Following the implementation of @sofia_hiernet, each of the 11 leaf classes is
+capped at 10,000 images to prevent the over-representation of majority classes,
+following which the images are then divded into training, validation, and test sets using a stratified 70/10/20 split. 
+
+Per class sample caps are neccisary given the substantial class imbalance in the raw dataset, in which *Cyclopoid* images accounting for the majority of all images (180,257). Stratification ensures that the class distribution is preserved across all three splits and, in particular,
+ensures that minority classes are present in the testing dataset for evaluation purposes.
+
+```{r}
+#| label: tbl-split-counts
+#| tbl-cap: "**Training, Validation, and Test Split Counts for the Flat and LCPN Models**"
+
+flat_counts <- class_counts |>
+  filter(!(final_class %in% c("Cladocera", "Copepoda"))) |>
+  summarise(
+    Total = sum(capped),
+    Train = sum(n_train),
+    Validate = sum(n_val),
+    Test = sum(n_test)
+  ) |>
+  mutate(across(everything(), scales::comma)) |>
+  pivot_longer(everything(), names_to = "Split", values_to = "Flat")
+
+lcpn_counts <- class_counts |>
+  summarise(
+    Total = sum(capped),
+    Train = sum(n_train),
+    Validate = sum(n_val),
+    Test = sum(n_test)
+  ) |>
+  mutate(across(everything(), scales::comma)) |>
+  pivot_longer(everything(), names_to = "Split", values_to = "LCPN")
+
+combined <- left_join(flat_counts, lcpn_counts, by = "Split")
+
+kable(combined, align = c("l", "r", "r"))
+```
+
+The flat and hierarchical CNNs are trained on slightly different sample sizes (@tbl-split-counts).
+In particular, the flat model is trained on fully labelled leaf class images only, while the 
+hierarchical models additionally incorporate the `r int(N_PARTIAL_IMAGES)` partially 
+labelled images assigned to the *Cladocera* and *Copepoda* nodes of class hierarchy (see @fig-hierarchy). @fig-class-distribution shows the training, validation, and testing
+counts per class after sample sizes are capped.
+
+```{r}
+#| label: fig-class-distribution
+#| fig-cap: "**Class Distribution After Capping.** Image counts per class
+#|   after applying a 10,000 image cap. Includes the partially labelled image classes
+#|   Cladocera and Copepoda. Bars are divided into training (70%), 
+#|   validation (10%), and test (20%) splits. Labels within each segment show 
+#|   the split count where space permits (minimum 500 images) and labels above 
+#|   each bar show the total class count. See @tbl-class-distribution-full for 
+#|   the complete counts. The dashed line indicates the 10,000 image cap."
+#| fig-align: "center"
+#| fig-width: 10
+#| fig-height: 6
+
+MIN_LABEL <- 500 # Prevents overlapping labels for test/train/validate counts
+
+plot_data <- class_counts |>
+  mutate(
+    final_class = factor(
+      final_class,
+      levels = arrange(class_counts, desc(capped)) |> pull(final_class)
+    )
+  ) |>
+  pivot_longer(
+    cols = c(n_train, n_test, n_val),
+    names_to = "split",
+    values_to = "count"
+  ) |>
+  mutate(
+    split = factor(
+      split,
+      levels = c("n_train", "n_test", "n_val"),
+      labels = c("Train", "Test", "Validate")
+    ),
+    label = ifelse(count >= MIN_LABEL, scales::comma(count), NA)
+  )
+
+totals <- class_counts |>
+  mutate(
+    final_class = factor(
+      final_class,
+      levels = levels(plot_data$final_class)
+    )
+  )
+
+ggplot(plot_data, aes(x = final_class, y = count, fill = split)) +
+  geom_col(color = "white", lwd = 0.5, position = "stack", width = 0.75) +
+  geom_text(
+    aes(label = label),
+    colour = "white",
+    fontface = "bold",
+    size = 3,
+    position = position_stack(vjust = 0.5),
+    na.rm = TRUE
+  ) +
+  geom_text(
+    data = totals,
+    aes(x = final_class, y = capped, label = scales::comma(capped)),
+    vjust = -0.5,
+    size = 3.2,
+    inherit.aes = FALSE
+  ) +
+  geom_hline(
+    yintercept = CAP,
+    linetype = "dashed",
+    colour = "grey40",
+    linewidth = 0.5
+  ) +
+  scale_fill_manual(
+    values = c("Train" = "#4C72B0", "Test" = "#55A868", "Validate" = "#DD8452")
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.08))
+  ) +
+  labs(x = "Class", y = "Image Count", fill = "Split") +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    legend.position = "top",
+    panel.grid.major.x = element_blank()
+  )
+```
+
+Note that due to a bug in the image loading implementation, images of the *Fiber* 
+class were not capped at 10,000, resulting in 11,743 images being used for training 
+rather than the intended 10,000. This discrepancy did not materially affect model 
+performance, and the uncapped total results in *Fiber* being only slightly 
+over-represented relative to the target cap. As the classification of non-zooplankton 
+objects is not a primary focus of this investigation, the models were not re-trained 
+following the discovery of this bug.
+
+\appendix
+
+# Appendix {-}
+
+# Additional Tables and Figures
+
+```{r}
+#| label: tbl-class-distribution-full
+#| tbl-cap: "**Complete Class Distribution After Capping**"
+
+class_counts |>
+  mutate(
+    final_class = as.character(final_class),
+    raw_count = scales::comma(raw_count),
+    capped = scales::comma(capped),
+    n_train = scales::comma(n_train),
+    n_val = scales::comma(n_val),
+    n_test = scales::comma(n_test)
+  ) |>
+  rename(
+    "Class" = final_class,
+    "Raw Count" = raw_count,
+    "Capped Count" = capped,
+    "Train" = n_train,
+    "Validate" = n_val,
+    "Test" = n_test
+  ) |>
+  kable(align = c("l", "r", "r", "r", "r", "r"))
+```
+
+# References
