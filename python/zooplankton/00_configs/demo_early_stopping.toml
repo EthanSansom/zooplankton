@@ -27,3 +27,4 @@ learning_rate_min = 1e-5
 [early_stop]
 patience = 3
 min_delta = -0.005
+min_epochs = 0

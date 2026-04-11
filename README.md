@@ -96,17 +96,17 @@ for external use.
 
 ## Running Experiments
 
-From the `python/` directory:
+From the project directory:
 ```bash
 # Zooplankton (data unavailable)
-uv run zooplankton/97_experiments/flat.py
-uv run zooplankton/97_experiments/lcpn.py
-uv run zooplankton/97_experiments/lcpn_flat_backbone.py
+uv run python/zooplankton/97_experiments/flat.py
+uv run python/zooplankton/97_experiments/lcpn.py
+uv run python/zooplankton/97_experiments/lcpn_flat_backbone.py
 
 # EMNIST demos (data available)
-uv run emnist/99_demos/01_flat_model.py
-uv run emnist/99_demos/01_lcpn_model.py
-uv run emnist/99_demos/03_flat_lcpn_comparison.py
+uv run python/emnist/99_demos/01_flat_model.py
+uv run python/emnist/99_demos/01_lcpn_model.py
+uv run python/emnist/99_demos/02_lcpn_flat_backbone_model.py
 ```
 
 Each script reads its configuration from the corresponding TOML file in 

@@ -28,3 +28,4 @@ learning_rate_min = 1e-5
 [early_stop]
 patience = 10_000_000 # ~Inf epochs
 min_delta = 0
+min_epochs = 0
