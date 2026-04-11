@@ -51,8 +51,7 @@ python/
 
 ## Architecture (Zooplankton)
 
-See `resources/slides/presentation_2026_03_25.pdf` for a more detailed description
-of the model architectures and associated experiments.
+See `resources/98_slides/presentation_2026_04_08.pdf` or `resources/99_report/report.pdf` for a more detailed description of the model architectures and associated experiments.
 
 ### Hierarchy
 
@@ -116,6 +115,7 @@ in `01_results/`.
 
 The `load()` method of the `FlatModel` and `LCPNModel` classes supports re-loading
 a trained model from its save directory in `01_results/`.
+
 
 ## Project Setup
 
