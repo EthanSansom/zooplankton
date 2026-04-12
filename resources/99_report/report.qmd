@@ -2,6 +2,8 @@
 title: "Hierarchical CNN Classification of Freshwater Zooplankton"
 author: "Ethan Sansom"
 date: today
+thanks: "Code is available at: [https://github.com/EthanSansom/zooplankton](https://github.com/EthanSansom/zooplankton)."
+abstract: "Accurate identification of zooplankton species is essential for freshwater ecosystem monitoring. While traditional approaches to zooplankton population surveying have relied on classification by taxonomists, recent approaches have leveraged machine learning models for efficient automated classification. This report evaluates the performance of one such class of model, a Local Classifier Per Parent Node (LCPN) hierarchical Convolutional Neural Network (CNN), for classifying images of freshwater zooplankton collected by the Ontario Ministry of Natural Resources (OMNR). Three models are compared: a flat ResNet18 11-class classifier, an LCPN hierarchical classifier using an OMNR-provided taxonomic hierarchy, and an LCPN built on an extended version of that hierarchy. All tested models achieve high accuracy on the held-out test set, with the LCPN models outperforming the flat baseline across all metrics. The LCPN (Extended) model achieved the highest test accuracy of 97.05% compared to 96.18% for the flat baseline, with the largest gains observed for the Copepoda classes, which are visually similar and difficult to differentiate. The results suggest that incorporating an expert-defined hierarchy into a CNN architecture can meaningfully improve model performance, and that targeted extensions of that hierarchy offer a principled approach to resolving inter-class confusion between visually similar classes."
 format:
   pdf:
     documentclass: article
@@ -27,54 +29,43 @@ library(here)
 library(jsonlite)
 library(knitr)
 library(dplyr)
+library(readr)
+library(purrr)
 library(stringr)
+library(forcats)
 library(tidyr)
 library(scales)
 library(ggplot2)
 
 PROJECT_DIR <- here::here()
 ZOOPLANKTON_DATA_DIR <- file.path(PROJECT_DIR, "python", "zooplankton", "00_raw_data")
+ZOOPLANKTON_RESULTS_DIR <- file.path(PROJECT_DIR, "python", "zooplankton", "01_results")
 REPORT_DATA_DIR <- file.path(PROJECT_DIR, "resources", "00_data")
 REPORT_IMAGE_DIR <- file.path(PROJECT_DIR, "resources", "00_images")
 
 include_image <- function(file) knitr::include_graphics(file.path(REPORT_IMAGE_DIR, file))
+read_results_csv <- function(file) read_csv(file.path(ZOOPLANKTON_RESULTS_DIR, file), show_col_types = FALSE)
 
 int <- function(x) format(x, big.mark = ",")
-num <- function(x) format(x, big.mark = ",", digits = 2L)
-prc <- function(x) paste0(format(x * 100, digits = 2L), "%")
 ```
 
 # Introduction
 
-<!-- TODO: Squash into one paragraph and possibly shorten --->
+The surveying of zooplankton populations is a key component of the Ontario Ministry of Natural Resources' (OMNR) fisheries monitoring program [@omnr_monitoring]. Zooplankton monitoring in particular is essential for assessing the health of freshwater ecosystems. For instance, the spread of invasive dreissenid mussels in the Laurentian Great Lakes[^1] over 2000-2019 has been attributed with zooplankton biomass reductions, contributing to declining whitefish populations [@ebener2021whitefish].
 
-The surveying of zooplankton populations is a key component of the Ontario Ministry of Natural Resources' (OMNR) fisheries monitoring program [@omnr_monitoring]. Zooplankton monitoring in particular
-is essential for accessing the health of freshwater ecosystems. For instance,
-the spread of invasive dreissenid mussels in the Laurentian Great Lakes^[The Laurentian Great Lakes will be referred to as the "Great Lakes" hereafter.] over 2000-2019 has been attributed with zooplankton biomass reductions, contributing to declining whitefish populations [@ebener2021whitefish].
+[^1]: The Laurentian Great Lakes will be referred to as the "Great Lakes" hereafter.
 
-Traditional zooplankton surveying relies on manual classification of sampled zooplankton
-and non-zooplankton particles by trained taxonomists. More recent methods in machine learning, such as Convolutional Neural Networks (CNNs), offer a more efficient automated alternative. OMNR has explored several such methods, including a multi-class CNN and a hierarchical branch CNN (BCNN) for classifying images as zooplankton species or non-zooplankton objects, both achieving accuracies exceeding 95% on held-out test images [@sofia_zoop; @sofia_hiernet].
+Traditional zooplankton surveying relies on manual classification of sampled zooplankton and non-zooplankton particles by trained taxonomists. More recent methods in machine learning, such as Convolutional Neural Networks (CNNs), offer an efficient automated alternative to manual classification. OMNR has explored several such methods, including a multi-class CNN and a hierarchical branch CNN (BCNN) for classifying images as zooplankton species or non-zooplankton objects, both achieving accuracies exceeding 95% on held-out test images [@sofia_zoop; @sofia_hiernet].
 
-This report evaluates two alternative hierarchical CNN architectures based on the 
-Local Classifier Per Parent Node (LCPN) approach [@silla2011survey] against a flat CNN baseline 
-for classifying images of freshwater zooplankton and non-zooplankton debris. We examine whether a taxonomic hierarchy, and a targeted extension of it, improves classification performance over the baseline, particularly for visually similar species such as Harpacticoid and Cyclopoid copepods.
+This report evaluates two alternative hierarchical CNN architectures based on the Local Classifier Per Parent Node (LCPN) approach [@silla2011survey] against a flat CNN baseline for classifying images of freshwater zooplankton and non-zooplankton debris. We examine whether a taxonomic hierarchy, and a targeted extension of it, improves classification performance over the baseline, particularly for visually similar species such as Harpacticoid and Cyclopoid copepods.
 
 # Data and Data Processing
 
 ## Dataset
 
-The dataset used for model training and evaluation is a non-public collection of
-pre-labelled images of freshwater zooplankton and non-zooplantkon debris sampled
-from Ontraio lakes including Lakes Erie, Simcoe, and Huron. The images are taken 
-using FlowCam devices, which capture high resolution microscopic images of particles 
-from water samples [@fluidimaging], and are provided by the OMNR.
+The dataset used for model training and evaluation is a non-public collection of pre-labeled images of freshwater zooplankton and non-zooplantkon debris sampled from Ontario lakes including Lakes Erie, Simcoe, and Huron. The images are taken using FlowCam devices, which capture high resolution microscopic images of particles from water samples [@fluidimaging], and are provided by the OMNR.
 
-Raw images are provided as both mosiacs, single `.tif` files containing multiple
-labelled sample images, and as labelled `.tif` files of individual zooplankton
-and non-zooplankton samples. The labels of the provided images are encoded in their
-parent directories, e.g. images of bubbles are contained within a `bubbles/` directory. 
-A Python script available from @sofia_hiernet was used to extract individual samples from 
-the mosiac images.
+Raw images are provided as both mosaics, single `.tif` files containing multiple labeled sample images, and as labeled `.tif` files of individual zooplankton and non-zooplankton samples. The labels of the provided images are encoded in their parent directories, e.g. images of bubbles are contained within a `bubbles/` directory. A Python script available from @sofia_hiernet was used to extract individual samples from the mosaic images.
 
 ```{r}
 #| label: tbl-class-mapping
@@ -110,22 +101,17 @@ kable(
   align = c("l", "l", "r"),
   format.args = list(big.mark = ',')
 )
-``` 
+```
 
-Following image extraction from mosaics, the raw dataset contains `r int(N_TOTAL_IMAGES)` 
-fully labelled images across `r N_RAW_CLASSES` directories, which are consolidated into the `r N_FINAL_CLASSES` 
-final classes used for model training (@tbl-class-mapping). The `r N_FINAL_CLASSES` final classes 
-comprise the leaf nodes of a taxonomic hierarchy provided by OMNR, which organises 
-freshwater zooplankton and non-zooplankton particles into a four-level tree structure 
-(@fig-hierarchy).
+Following image extraction from mosaics, the raw dataset contains `r int(N_TOTAL_IMAGES)` fully labeled images across `r N_RAW_CLASSES` directories, which are consolidated into the `r N_FINAL_CLASSES` final classes used for model training (@tbl-class-mapping). The `r N_FINAL_CLASSES` final classes comprise the leaf nodes of a taxonomic hierarchy provided by OMNR, which organizes freshwater zooplankton and non-zooplankton particles into a four-level tree structure (@fig-hierarchy).
 
 ```{r}
 #| label: fig-hierarchy
 #| fig-cap: "**Taxonomic Hierarchy of Freshwater Zooplankton.** Hierarchy provided 
-#|   by OMNR, organising zooplankton and non-zooplankton particles into a four-level 
+#|   by OMNR, organizing zooplankton and non-zooplankton particles into a four-level 
 #|   tree structure. Leaf nodes correspond to the 11 classes used for model training and evaluation."
 #| dpi: 300
-#| out-width: "80%"
+#| out-width: "85%"
 #| fig-align: "center"
 
 include_image("zooplankton_hierarchy.svg")
@@ -143,12 +129,10 @@ An image from each of the `r N_FINAL_CLASSES` leaf classes is shown below in @fi
 #| out-width: "100%"
 #| fig-align: "center"
 
-knitr::include_graphics(file.path(REPORT_IMAGE_DIR, "zooplankton_leaf_classes.png"))
+include_image("zooplankton_leaf_classes.png")
 ```
 
-Additionally, the raw dataset contains two directories, `cladocera/` and
-`copepoda/`, containing partially labelled images corresponding to parent nodes
-on the hierarchy (@tbl-partial-class-mapping).
+Additionally, the raw dataset contains two directories, `cladocera/` and `copepoda/`, containing partially labeled images corresponding to parent nodes on the hierarchy (@tbl-partial-class-mapping).
 
 ```{r}
 #| label: tbl-partial-class-mapping
@@ -170,27 +154,13 @@ kable(
 )
 ```
 
-These images are included in the training of the hierarchical CNN models, but
-are excluded from the training of the flat baseline model and are excluded from 
-the validation and testing of all models.
+These images are included in the training of the hierarchical CNN models but excluded from the flat baseline, as they lack the leaf-level labels required for flat classification. Additionally, they are not used in the evaluation of leaf-level classification performance for any model.
 
 ## Preprocessing
 
-Prior to model training and evaluation, all images are converted to greyscale on
-the basis that zooplankton identification relies primarily on morphological features, e.g.
-body shape, appendage structure, and silhouette, rather than colour, consistent
-with how taxonomists manually classify zooplankton specimens [@leow2015copepods].
-Additionally, conversion from 3 Red-Green-Blue (RGB) colour channels to a single
-greyscale channel reduces image size by two-thirds, lowering memory requirements
-and computational cost during training.
+Prior to model training and evaluation, all images are converted to grayscale on the basis that zooplankton identification relies primarily on morphological features, e.g. body shape, appendage structure, and silhouette, rather than colour, consistent with how taxonomists manually classify zooplankton specimens [@leow2015copepods]. Additionally, conversion from 3 Red-Green-Blue (RGB) colour channels to a single grayscale channel reduces image size by two-thirds, lowering memory requirements and computational cost during training.
 
-To improve model generalisation, three augmentations are applied randomly to
-training images: a horizontal flip, vertical flip, and random 90 degree rotation.
-These transformations are motivated by the lack of a canonical orientation of
-particles captured by FlowCam devices. Unlike images of a human, for instance,
-which typically show a person sitting or standing upright, zooplankton specimens
-submitted for classification may appear in any orientation. None of these
-augmentations are applied at validation or test time.
+To improve model generalization, three augmentations are applied randomly to training images: a horizontal flip, vertical flip, and random 90 degree rotation. These transformations are motivated by the lack of a canonical orientation of particles captured by FlowCam devices. Unlike images of a human, for instance, which typically show a person sitting or standing upright, zooplankton specimens submitted for classification may appear in any orientation. None of these augmentations are applied at validation or test time.
 
 ## Data Splitting
 
@@ -217,12 +187,9 @@ class_counts <- dir_to_lcpn_class |>
   )
 ```
 
-Following the implementation of @sofia_hiernet, each of the 11 leaf classes is
-capped at 10,000 images to prevent the over-representation of majority classes,
-following which the images are then divded into training, validation, and test sets using a stratified 70/10/20 split. 
+Following the implementation of @sofia_hiernet, each of the 11 leaf classes and 2 parent node classes is capped at 10,000 images^[An implementation bug, however, caused one class, *Fiber*, to be incorrectly left uncapped (see @fig-class-distribution).] to prevent the over-representation of majority classes. After capping, images are divided into training, validation, and test sets using a stratified 70/10/20 split, where each class forms a stratum.
 
-Per class sample caps are neccisary given the substantial class imbalance in the raw dataset, in which *Cyclopoid* images accounting for the majority of all images (180,257). Stratification ensures that the class distribution is preserved across all three splits and, in particular,
-ensures that minority classes are present in the testing dataset for evaluation purposes.
+Per class sample caps are necessary given the substantial class imbalance in the raw dataset, in which *Cyclopoid* images account for the majority of all images ($N_{\text{Cyclopoid}} = 180,257$). Stratification ensures that the class distribution is preserved across all three splits and, in particular, ensures that minority classes are present in the testing dataset for evaluation purposes.
 
 ```{r}
 #| label: tbl-split-counts
@@ -254,11 +221,7 @@ combined <- left_join(flat_counts, lcpn_counts, by = "Split")
 kable(combined, align = c("l", "r", "r"))
 ```
 
-The flat and hierarchical CNNs are trained on slightly different sample sizes (@tbl-split-counts).
-In particular, the flat model is trained on fully labelled leaf class images only, while the 
-hierarchical models additionally incorporate the `r int(N_PARTIAL_IMAGES)` partially 
-labelled images assigned to the *Cladocera* and *Copepoda* nodes of class hierarchy (see @fig-hierarchy). @fig-class-distribution shows the training, validation, and testing
-counts per class after sample sizes are capped.
+The flat and hierarchical CNNs are trained on slightly different sample sizes (@tbl-split-counts). In particular, the flat model is trained on fully labeled leaf class images only, while the hierarchical models additionally incorporate the `r int(N_PARTIAL_IMAGES)` partially labeled images assigned to the *Cladocera* and *Copepoda* nodes of class hierarchy (see @fig-hierarchy). @fig-class-distribution shows the training, validation, and testing counts per class after sample sizes are capped.
 
 ```{r}
 #| label: fig-class-distribution
@@ -343,17 +306,506 @@ ggplot(plot_data, aes(x = final_class, y = count, fill = split)) +
   )
 ```
 
-Note that due to a bug in the image loading implementation, images of the *Fiber* 
-class were not capped at 10,000, resulting in 11,743 images being used for training 
-rather than the intended 10,000. This discrepancy did not materially affect model 
-performance, and the uncapped total results in *Fiber* being only slightly 
-over-represented relative to the target cap. As the classification of non-zooplankton 
-objects is not a primary focus of this investigation, the models were not re-trained 
-following the discovery of this bug.
+Note that due to a bug in the image loading implementation, images of the *Fiber* class were not capped at 10,000, resulting in 11,743 images being used for training rather than the intended 10,000. This discrepancy did not materially affect model performance, and the discrepancy results in *Fiber* being only slightly over-represented relative to the target cap. As the classification of non-zooplankton objects is not a primary focus of this investigation, the models were not re-trained following the discovery of this bug.
+
+# Methods
+
+## Model Overview
+
+Three CNN models are trained and evaluated in this report. All three share the same ResNet18 [@he2015resnet] backbone and preprocessing pipeline, differing only in their classification architecture.
+
+| Model | Description | Motivation |
+|----------------|----------------------------|----------------------------|
+| Flat Baseline | Single 11-class classifier.\newline | Establishes a performance baseline without hierarchical structure.\newline |
+| LCPN | Local Classifier Per Parent Node with taxonomic hierarchy.\newline | Groups biologically similar classes to reduce inter-class confusion.\newline |
+| LCPN-Extended | LCPN with an additional *Harpacticoid or Cyclopoid* node. | Targets the specific *Harpacticoid/Cyclopoid* confusion identified in the flat baseline. |
+
+: **Overview of the CNN Model Architectures** {#tbl-model-overview}
+
+## Flat Baseline
+
+The flat baseline is a standard multi-class CNN classifier. A 128 by 128 grayscale image is passed through a pretrained ResNet18 backbone (see @sec-resnet for details), which produces a 512-dimensional feature vector. A single linear classification head maps this feature vector to a probability distribution over the 11 leaf classes via a softmax activation (@fig-flat-architecture). The model is trained by minimizing the cross-entropy loss between the predicted and true class distributions:
+
+$$\mathcal{L} = -\sum_{c=1}^{11} y_c \log(\hat{y}_c)$$
+
+where $y_c$ is the true label indicator and $\hat{y}_c$ is the predicted probability for class $c$.
+
+```{r}
+#| label: fig-flat-architecture
+#| fig-cap: "**Flat Baseline Architecture.** A 128 by 128 greyscale image is passed 
+#|   through a pretrained ResNet18 backbone, producing a 512-dimensional feature 
+#|   vector. A single linear classification head maps this to a probability 
+#|   distribution over the 11 leaf classes."
+#| fig-align: "center"
+#| out-width: "70%"
+
+include_image("architecture_flat.svg")
+```
+
+## Local Classifier Per Parent Node (LCPN)
+
+The LCPN architecture replaces the single classification head with a set of local classifiers, one per internal node of the taxonomic hierarchy (see @fig-hierarchy). Each classifier is responsible only for distinguishing the direct children of its node. For example, the root classifier distinguishes *Yes Zooplankton* from *Not Zooplankton*, while the Copepoda classifier distinguishes *Nauplius*, *Cyclopoid*, *Harpacticoid*, and *Calanoid*. All local classifiers share the same pretrained ResNet18 backbone and operate on the same 512-dimensional feature vector, with separate linear classification heads per node, each of which produces a probability distribution over its child classes (@fig-lcpn-architecture).
+
+```{r}
+#| label: fig-lcpn-architecture
+#| fig-cap: "**LCPN Architecture.** The shared ResNet18 backbone produces a 
+#|   512-dimensional feature vector, which is passed to a set of local classifiers;
+#|   one per internal node of the taxonomic hierarchy. Each classifier distinguishes 
+#|   only the direct children of its node."
+#| fig-align: "center"
+#| out-width: "70%"
+
+include_image("architecture_lcpn.svg")
+```
+
+During training, a cross-entropy loss is computed at each internal node for samples whose true label passes through that node. The total training loss is the sum of these per-node losses:
+
+$$\mathcal{L}_{\text{LCPN}} = \sum_{n \in \mathcal{N}} \mathcal{L}_n$$
+
+where $\mathcal{N}$ is the set of internal nodes and $\mathcal{L}_n$ is the cross-entropy loss at node $n$. See @sec-loss for more details.
+
+At inference time, a prediction is produced by a greedy top-down traversal of the hierarchy: starting at the root, the child with the highest predicted probability is selected at each node, continuing until a leaf class is reached (@fig-greedy-prediction).
+
+```{r}
+#| label: fig-greedy-prediction
+#| fig-cap: "**Greedy Top-Down Prediction in the LCPN Model.** At each internal 
+#|   node, the child class with the highest predicted probability (shown in brackets) is selected 
+#|   (highlighted in blue), and traversal continues until a leaf class is reached. 
+#|   In this example, the model predicts *Not Zooplankton* at the root, then 
+#|   *Bubble* at the Not Zooplankton node, yielding a final leaf prediction of 
+#|   *Bubble* and a hierarchical prediction of [*Not Zooplankton*, *Bubble*]."
+#| fig-align: "center"
+#| out-width: "85%"
+
+include_image("greedy_prediction.svg")
+```
+
+## LCPN (Extended)
+
+The LCPN (Extended) model extends the standard LCPN hierarchy by inserting an additional internal node, *Harpacticoid or Cyclopoid*, between the *Copepoda* parent node and the *Cyclopoid* and *Harpacticoid* leaf classes, adding another level to the hierarchy (@fig-hierarchy-extended).
+
+```{r}
+#| label: fig-hierarchy-extended
+#| fig-cap: "**Extended Taxonomic Hierarchy of Freshwater Zooplankton.** Extends the OMNR-provided
+#|   hierarchy from a 4-level to a 5-level tree structure by inserting an additional 
+#|   *Harpacticoid or Cyclopoid* parent node between the *Copepoda* node and the 
+#|   *Cyclopoid* and *Harpacticoid* leaf classes. Parent nodes are numbered."
+#| dpi: 300
+#| out-width: "85%"
+#| fig-align: "center"
+
+include_image("zooplankton_hierarchy_extended.svg")
+```
+
+This creates a dedicated binary classifier whose sole responsibility is to distinguish these two visually similar species (@fig-lcpn-extended-architecture). This extension of the zooplankton hierarchy is motivated by the flat baseline results, which show frequent misclassification of *Harpacticoid* images as *Cyclopoid* (see @fig-flat-confusion). By dedicating a classifier node exclusively to the *Harpacticoid* vs. *Cyclopoid* class boundary, the LCPN (Extended) model is penalized more (e.g. has a greater loss) when a *Harpacticoid* is misclassified as a *Cyclopoid* relative to the standard LCPN model. This strengthens the gradient signal 
+that pulls the model's weights towards a state that more clearly separates these two classes.
+
+```{r}
+#| label: fig-lcpn-extended-architecture
+#| fig-cap: "**LCPN-Extended Architecture.** Identical to the LCPN architecture 
+#|   but with an additional *Harpacticoid or Cyclopoid* node inserted between the 
+#|   Copepoda classifier and the Cyclopoid and Harpacticoid leaf classes, creating 
+#|   a dedicated binary classifier for this confusable pair."
+#| fig-align: "center"
+#| out-width: "70%"
+
+include_image("architecture_lcpn_extended.svg")
+```
+
+More generally, this illustrates how hierarchy design can be treated as an adjustable modeling choice rather than a fixed constant determined by the problem domain. Rather than treating all class boundaries as equally difficult, the LCPN framework allows modelers to incorporate both domain knowledge, such as known morphological similarity between classes, as well as empirical feedback from model evaluation to iteratively refine the hierarchy.
+
+## Training Setup
+
+All three models are trained using the Adam optimizer [@kingma2017adam] with a learning rate of 0.0001 and a cosine annealing scheduler with a minimum learning rate of 0.00001. Training proceeds for a maximum of 60 epochs, with early stopping applied after a minimum of 15 epochs if the validation loss does not decrease by more than 0.001 over 7 consecutive epochs. A fixed random seed of 123 is used across all experiments to ensure reproducibility. All models are initialized with ImageNet-1k pretrained ResNet18 weights [@he2015resnet; @deng2009imagenet].
+
+# Results
+
+## Overall Performance
+
+@tbl-overall-performance summarizes the overall test accuracy, precision, recall, and macro-averaged F1 score for each of the three models on the held-out test set.
+
+```{r}
+#| label: tbl-overall-performance
+#| tbl-cap: "**Overall Leaf-Level Classification Metrics on the Held-Out Test Set**"
+
+metrics_leaf_overall <- read_results_csv("metrics_leaf_overall.csv")
+
+metrics_leaf_overall |>
+  rename(
+    "Model" = model,
+    "Accuracy" = accuracy,
+    "F1" = f1,
+    "Precision" = precision,
+    "Recall" = recall
+  ) |>
+  kable(align = c("l", "r", "r", "r", "r"), digits = 4)
+```
+
+The LCPN (Extended) model has the highest performance across all metrics, with a testing accuracy of 97.05% compared to an accuracy of 96.18% for the Flat baseline. The LCPN (Extended) model only slightly outperforms the LCPN model on all metrics, suggesting that the primary performance gain comes from the introduction of hierarchical structure itself, rather than the targeted extension of the hierarchy to target *Harpacticoid* vs. *Cyclopoid* inter-class confusion.
+
+The overall performance increase over the flat baseline is moderate, which may reflect the fact that the flat baseline is already a strong model, with per-class accuracy greater than 95% for 7 of 11 leaf-classes (see @tbl-per-class-metrics). A pretrained ResNet18 model with sufficient training data appears capable of learning inter-class boundaries implicitly, leaving limited room for the hierarchical structure to provide additional gains.
+
+## Harpacticoid and Cyclopoid Classification
+
+The primary motivation for the LCPN-Extended model was the difficulty all models face in distinguishing Harpacticoid and Cyclopoid copepods, two morphologically similar species which have a large class imbalance in the processed image dataset ($N_{\text{Harpacticoid}} = 1,713, N_{\text{Cyclopoid-Capped}} = 10,000$). The baseline model correctly classifies 77% of Harpacticoid labeled test images and incorrectly classifies 20% as Cyclopoids (@fig-flat-confusion).
+
+```{r}
+#| label: fig-flat-confusion
+#| fig-cap: "**Flat Baseline Confusion Matrix.** Row-normalized confusion matrix 
+#|   for the flat baseline model on the held-out test set. Each cell represents 
+#|   the proportion of true-class samples predicted as each class. Diagonal 
+#|   entries represent per-class recall."
+#| fig-align: "center"
+#| fig-width: 8
+#| fig-height: 7
+
+confusion_leaf <- read_results_csv("confusion_leaf.csv")
+
+confusion_leaf |>
+  filter(model == "Flat") |>
+  mutate(
+    true = str_to_title(str_replace_all(true, "_", " ")),
+    predicted = str_to_title(str_replace_all(predicted, "_", " ")),
+    true = fct_rev(factor(true)),
+    label = sprintf("%.2f", proportion)
+  ) |>
+  ggplot(aes(x = predicted, y = true, fill = proportion)) +
+  geom_tile() +
+  geom_text(
+    aes(label = label, color = if_else(proportion < 0.5, "black", "white")), 
+    size = 3
+  ) +
+  scale_color_identity() +
+  scale_fill_distiller(palette = "Blues", direction = 1, limits = c(0, 1)) +
+  labs(x = "Predicted", y = "True", fill = "Proportion") +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+```
+
+The Copepoda confusion matrices (@fig-copepoda-confusion) show that *Harpacticoid* is the most difficult class to classify for every model, with recall at or below 85% in all cases, substantially lower than that of other Copepoda classes. The primary source of confusion in all cases is misclassification of *Harpacticoid* images as *Cyclopoid*. Both LCPN models improve *Harpacticoid* recall, with the LCPN (Extended) model achieving the highest recall of 85%, consistent with its design goal of improving the separation of the *Harpacticoid* and *Cyclopoid* classes. Notably, however, the improvement from LCPN to LCPN (Extended) is modest (84% to 85% recall), suggesting that the standard hierarchical structure already captures much of the available signal for this distinction, and that the dedicated binary *Harpacticoid vs. Cyclopoid* node provides only a marginal additional benefit.
+
+```{r}
+#| label: fig-copepoda-confusion
+#| fig-cap: "**Copepoda Confusion Matrices.** Row-normalized confusion matrices 
+#|   restricted to the four Copepoda leaf classes (Calanoid, Cyclopoid, 
+#|   Harpacticoid, Nauplius) for each of the three models. Each cell represents 
+#|   the proportion of true-class samples predicted as each class. Diagonal 
+#|   entries represent per-class recall."
+#| fig-align: "center"
+#| fig-width: 10
+#| fig-height: 4
+
+COPEPODA_CLASSES <- c("calanoid", "cyclopoid", "harpacticoid", "nauplius")
+
+confusion_leaf |>
+  filter(
+    true %in% COPEPODA_CLASSES,
+    predicted %in% COPEPODA_CLASSES
+  ) |>
+  mutate(
+    true = str_to_title(true),
+    predicted = str_to_title(predicted),
+    true = fct_rev(factor(true)),
+    predicted = factor(predicted),
+    model = factor(model, levels = c("Flat", "LCPN", "LCPN (Extended)")),
+    label = sprintf("%.2f", proportion)
+  ) |>
+  ggplot(aes(x = predicted, y = true, fill = proportion)) +
+  geom_tile() +
+    geom_text(
+    aes(label = label, color = if_else(proportion < 0.5, "black", "white")), 
+    size = 3
+  ) +
+  scale_color_identity() +
+  scale_fill_distiller(palette = "Blues", direction = 1, limits = c(0, 1)) +
+  facet_wrap(~model, nrow = 1) +
+  labs(x = "Predicted", y = "True", fill = "Proportion") +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+## Per-Class F1: Zooplankton Classes
+
+```{r}
+#| label: fig-f1-barchart
+#| fig-cap: "**Per-Class F1 Score: Zooplankton Leaf Classes.** F1 scores for the
+#|   seven zooplankton leaf classes on the held-out test set for each of the three
+#|   models. Non-zooplankton classes are excluded."
+#| fig-align: "center"
+#| fig-width: 10
+#| fig-height: 5
+
+ZOOPLANKTON_CLASSES <- c(
+  "bosmina", "calanoid", "cyclopoid", "daphnia",
+  "harpacticoid", "nauplius", "rotifer"
+)
+
+MODEL_LEVELS <- c("Flat", "LCPN", "LCPN (Extended)")
+
+read_results_csv("metrics_leaf_per_class.csv") |>
+  filter(class %in% ZOOPLANKTON_CLASSES) |>
+  mutate(
+    class = str_to_title(class),
+    model = factor(model, levels = MODEL_LEVELS),
+    label = ifelse(f1 > 0.15, sprintf("%.2f", f1), NA)
+  ) |>
+  ggplot(aes(x = class, y = f1, fill = model)) +
+  geom_col(
+    color = "white",
+    lwd = 0.5,
+    position = position_dodge(width = 0.75),
+    width = 0.7
+  ) +
+  geom_text(
+    aes(label = label),
+    position = position_dodge(width = 0.75),
+    vjust = 1.4,
+    colour = "white",
+    fontface = "bold",
+    size = 2.8,
+    na.rm = TRUE
+  ) +
+  scale_fill_manual(
+    values = c("Flat" = "#4C72B0", "LCPN" = "#55A868", "LCPN (Extended)" = "#DD8452")
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  labs(x = "Class", y = "F1 Score", fill = "Model") +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 35, hjust = 1),
+    legend.position = "top",
+    panel.grid.major.x = element_blank()
+  )
+```
+
+@fig-f1-barchart shows that the LCPN model matches or slightly outperforms the flat baseline across most zooplankton classes, with the most notable improvement in Calanoid (0.94 to 0.96) and a slight regression in Nauplius (0.98 to 0.97). The LCPN (Extended) model shows small performance changes relative to the standard LCPN including marginal improvements in Cyclopoid (0.94 to 0.95), Nauplius (0.97 to 0.98), and Harpacticoid (0.84 to 0.86), alongside a minor regression in Daphnia (0.99 to 0.98). The differences across all three models are small, consistent with the overall accuracy results, suggesting that the hierarchical structure provides modest but consistent gains without severely degrading performance on any individual class.
+
+## Hierarchical Performance
+
+This section considers the performance of the LCPN models on hierarchical predictions at Level-1 (*Yes Zooplankton* vs. *Not Zooplankton*) and Level-2 (*Cladocera* vs. *Copepoda* vs. *Rotifer* vs. the 4 *Not Zooplankton* classes). Strong performance at these levels is necessary for strong leaf-level performance, as prediction errors at Level-1 or Level-2 of the hierarchy cascade down to lower levels, resulting in incorrect leaf-level classification.
+
+```{r}
+#| label: tbl-metrics-by-level
+#| tbl-cap: "**Hierarchical Classification Metrics by Level for the LCPN Models on Held-Out Test Data**"
+
+bind_rows(
+  read_results_csv("metrics_leaf_overall.csv"),
+  read_results_csv("metrics_by_level.csv") |>
+    bind_rows(tibble(model = "Flat", level = c("Level 1", "Level 2")))
+) |>
+  mutate(
+    model = factor(model, levels = c("Flat", "LCPN", "LCPN (Extended)")),
+    level = ordered(if_else(is.na(level), "Leaf", level), c("Level 1", "Level 2", "Leaf"))
+  ) |>
+  arrange(model, level) |>
+  rename(
+    "Model" = model,
+    "Level" = level,
+    "Accuracy" = accuracy,
+    "F1" = f1,
+    "Precision" = precision,
+    "Recall" = recall
+  ) |>
+  kable(align = c("l", "l", "r", "r", "r", "r"), digits = 4)
+```
+
+Both LCPN models have near 100% accuracy when distinguishing between zooplankton and non-zooplankton images in the test dataset and 99% accuracy on Level-2 classification (@tbl-metrics-by-level). Note that the flat baseline model does not produce hierarchical labels and thus does not have Level-1 or Level-2 performance metrics.
+
+As shown by the confusion matrices in @fig-level2-confusion, both LCPN models have similar recall for the *Cladocera*, *Copepoda*, and *Rotifer* groups (around 98%, 99%, and 97% recall respectively for both models). Recall is weakest for the non-zooplankton *Plant Matter* and *Exoskelton* classes, with recall at or below 95% in all cases.
+
+```{r}
+#| label: fig-level2-confusion
+#| fig-cap: "**Level-2 Confusion Matrices.** Row-normalized confusion matrices 
+#|   for Level-2 predictions (taxonomic group) for the LCPN and LCPN (Extended) 
+#|   models on the held-out test set."
+#| fig-align: "center"
+#| fig-width: 10
+#| fig-height: 5
+
+LEVEL2_ORDER <- c("Cladocera", "Copepoda", "Rotifer", "Bubbles", "Plant Matter", "Exoskeleton", "Fiber")
+
+read_results_csv("confusion_level_2.csv") |>
+  mutate(
+    true = str_to_title(str_replace_all(true, "_", " ")),
+    predicted = str_to_title(str_replace_all(predicted, "_", " ")),
+    true = fct_rev(factor(true, levels = LEVEL2_ORDER)),
+    predicted = factor(predicted, levels = LEVEL2_ORDER),
+    model = factor(model, levels = c("LCPN", "LCPN (Extended)")),
+    label = sprintf("%.2f", proportion)
+  ) |>
+  ggplot(aes(x = predicted, y = true, fill = proportion)) +
+  geom_tile() +
+  geom_text(
+    aes(label = label, color = if_else(proportion < 0.5, "black", "white")),
+    size = 3
+  ) +
+  scale_color_identity() +
+  scale_fill_distiller(palette = "Blues", direction = 1, limits = c(0, 1)) +
+  facet_wrap(~model, nrow = 1) +
+  labs(x = "Predicted", y = "True", fill = "Proportion") +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+## Discussion
+
+The results demonstrate that a Local Classifier Per Parent Node (LCPN) approach [@silla2011survey], which encodes a taxonomic hierarchy into a CNN model architecture, does improve zooplankton classification performance over a flat baseline classifier, though gains are modest given the strong performance of the pretrained ResNet18 baseline.
+
+The LCPN model outperforms the flat baseline across all metrics, with the largest differences observed in the Copepoda classes, particularly *Calanoid* and *Harpacticoid*, where dedicated node-level classifiers appear to distinguish between these similar classes more effectively than a single flat classification head. This is consistent with the motivation for the LCPN approach: by dedicating a separate classifier to each internal node of the taxonomic hierarchy provided by OMNR, the model focuses learning capacity on the distinctions most relevant at each taxonomic level. Further, LCPN models both perform strongly at Level-1 (*Yes Zooplankton* vs. *Not Zooplankton*) and Level-2 (*Cladocera* vs. *Copepoda* vs. *Rotifer* vs. 4 non-zooplankton classes) classification (@tbl-metrics-by-level), making these models useful for coarse classification tasks, such as the automated removal of non-zooplankton images from a zooplankton-specific dataset.
+
+While the flat model's single classifier must simultaneously differentiate a *Calanoid* from both taxonomically related species such as *Harpacticoid* and unrelated non-zooplankton objects such as *Plant Matter*, each LCPN classifier is responsible only for distinguishing its direct child classes. As shown in @tbl-metrics-by-level, the Level-1 *Yes Zooplankton vs. Not Zooplankton* classifier achieves near 100% accuracy, preventing misclassification errors from propagating down the hierarchy and allowing lower-level zooplankton classifiers to focus their capacity entirely on distinguishing between taxonomically related classes.
+
+The LCPN (Extended) model improves upon the standard LCPN for Harpacticoid classification specifically, with the *Harpacticoid* class F1 score increasing from 0.84 to 0.86, and *Cyclopoid* from 0.94 to 0.95 (@fig-f1-barchart). This supports the hypothesis that the LCPN hierarchy can be adjusted to target inter-class confusion between visually similar classes. However, the improvement is modest, suggesting that the standard LCPN hierarchy already captures much of the available signal for differentiating between the *Harpacticoid* and *Cyclopoid* classes. Additionally, the LCPN (Extended) model has slight performance regressions for *Daphnia* classification relative to the LCPN model.
+
+These results support the use of hierarchical classifiers over flat alternatives for zooplankton classification. More broadly, they suggest that hierarchies provided by domain experts can improve the performance of CNNs on difficult-to-distinguish classes, and that targeted extensions of these hierarchies, informed by confusion matrix analysis, can improve performance further. Future work may consider constructing hierarchies directly from the confusion matrix of a flat baseline classifier, using empirical misclassification patterns to determine which classes should share parent nodes on a hierarchy, rather than relying primarily on a taxonomy provided by domain experts.
 
 \appendix
 
-# Appendix {-}
+# Appendix {.unnumbered}
+
+# ResNet18 Backbone {#sec-resnet}
+
+Residual Networks (ResNets) are a family of deep CNNs introduced by @he2015resnet which enable the construction of deeper networks without performance degradation relative to the *Very Deep Convolutional Networks* (also called VGGNets) introduced by @simonyan2015vggs. ResNet18 is the smallest member of this family, consisting of 18 layers and producing a 512-dimensional feature vector at its output.
+
+All models in this report use a ResNet18 backbone initialized with weights pretrained on the ImageNet-1k dataset [@deng2009imagenet], a large-scale benchmark comprising approximately 1.2 million colour images across 1,000 object categories. Pretraining on ImageNet is standard practice in plankton image classification, as the learned weights encode general visual features, such as edges, textures, and shapes, that transfer effectively to microscopy images despite the domain shift from natural colour photographs. In particular, ImageNet-pretrained ResNet models have been shown to perform well on plankton classification tasks [@walter2025planktonflow].
+
+In this report, the training dataset differs from ImageNet in two important ways: the images are grayscale rather than colour, and the subjects are microscopic organisms rather than natural scenes in full color. Despite this domain shift, all classifiers tested in this report achieved high overall accuracy at the leaf-level, reaffirming the findings of @walter2025planktonflow that ImageNet pretraining transfers well to plankton classification tasks.
+
+# Loss and Partially Labelled Images {#sec-loss}
+
+Images in the `cladocera/` and `copepoda/` raw dataset directories are labeled at an internal node of the taxonomic hierarchy rather than at the leaf level. That is, the taxonomic group (e.g. Copepoda) of these samples is known, while the taxonomic order (e.g. Harpacticoida) is unknown.
+
+These images are not included in the training of the flat baseline classifier, as they would dilute the influence of fully-labeled classes during training. For example, consider an image of a Bosmina stored under the `cladocera/` directory with a label of *Cladocera*. During training, the flat classifier would be penalized for predicting *Bosmina*, the correct leaf-level class, and would instead be tuned to predict *Cladocera* for this image, potentially causing the model to also misclassify fully-labeled *Bosmina* images as *Cladocera*.
+
+Partially-labeled images can, however, be used to train the LCPN model. Becuase the LCPN computes loss at each internal node independently, a partially-labeled image contributes loss only at the nodes along the path from the root to its assigned node. For example, a *Copepoda*-labeled image contributes to the *Root* and *Yes Zooplankton* classifiers, but not to any classifier below the *Copepoda* node (@fig-lcpn-loss-partially-labelled). In particular, this image does not negatively impact the classification of *Bosmina* or *Daphnia* leaf classes by the *Cladocera* classifier, in contrast with the negative effect of a *Copepoda*-labeled image on the flat classifier. Fully-labeled images, such as a *Bosmina*, contribute to the LCPN loss at every node along the full path of the hierarchy (@fig-lcpn-loss-fully-labelled).
+
+```{r}
+#| label: fig-lcpn-loss-partially-labelled
+#| fig-cap: "**LCPN Training Loss: Partially Labelled Sample.** For a partially 
+#|   labelled image assigned to an internal node (e.g. *Copepoda*), loss is 
+#|   computed only at the nodes along the path from root to that internal node."
+#| fig-align: "center"
+#| out-width: "85%"
+
+include_image("lcpn_loss_partially_labelled.svg")
+```
+
+```{r}
+#| label: fig-lcpn-loss-fully-labelled
+#| fig-cap: "**LCPN Training Loss: Fully Labelled Sample.** For a fully labelled 
+#|   leaf-class image (e.g. *Bosmina*), cross-entropy loss is computed at each 
+#|   internal node along the path from root to leaf. The total training loss is 
+#|   the sum of all node-level losses."
+#| fig-align: "center"
+#| out-width: "85%"
+
+include_image("lcpn_loss_fully_labelled.svg")
+```
+
+# Training Metrics
+
+@tbl-training-info shows that the LCPN models train for more epochs before converging than the flat baseline and that per-epoch training duration increases only modestly, from 1.65 minutes for the flat baseline to 2.10 and 2.16 minutes for the LCPN and LCPN (Extended) models respectively. This suggests that the computational overhead of the hierarchical approach is low relative to the flat baseline, consistent with the use of the same shared ResNet18 feature extractor for all 3 models, which contributes the majority of the trainable parameters in each architecture. Transitioning from one classification head to 5 classification heads from the flat baseline to the LCPN model incurs a per-epoch training time cost of around 6 seconds and, similarly, adding an additional head for the LCPN (Extended) model incurs a cost of about 4 seconds. This is a promising result for the hierarchical extension approach, as it suggests that targeted classifiers can be added to an existing hierarchy with limited overhead.
+
+```{r}
+#| label: training-metrics-setup
+#| include: false
+
+MODEL_LEVELS <- c("Flat", "LCPN", "LCPN (Extended)")
+MODEL_DIRS <- c(
+  "Flat" = "flat_20260407_191102",
+  "LCPN" = "lcpn_20260407_211606",
+  "LCPN (Extended)" = "lcpn_extended_20260407_232625"
+)
+
+history_data <- MODEL_DIRS |>
+  imap(\(dir, model_name) {
+    path <- file.path(ZOOPLANKTON_RESULTS_DIR, dir, "history.json")
+    history <- fromJSON(path)
+    tibble(
+      model = model_name,
+      epoch = seq_along(history$valid$accuracy),
+      accuracy = history$valid$accuracy
+    )
+  }) |>
+  list_rbind() |>
+  mutate(model = factor(model, levels = MODEL_LEVELS))
+```
+
+@fig-validation-accuracy shows the validation accuracy attained by each model during training at every epoch.
+
+```{r}
+#| label: tbl-training-info
+#| tbl-cap: "**Model Training Information**"
+
+best_val <- history_data |>
+  group_by(model) |>
+  summarise(
+    best_val_accuracy = max(accuracy),
+    best_val_epoch = epoch[which.max(accuracy)],
+    .groups = "drop"
+  )
+
+read_results_csv("training_info.csv") |>
+  left_join(best_val, by = "model") |>
+    mutate(
+    model = factor(str_replace(model, "Extended", "Ext."), levels = c("Flat", "LCPN", "LCPN (Ext.)"))
+  ) |>
+  arrange(model) |>
+  rename(
+    "Model" = model,
+    "Epochs" = epochs_completed,
+    "Total Duration (minutes)" = duration_min,
+    "Average Epoch Duration (minutes)" = duration_per_epoch_min,
+    "Best Validation Accuracy" = best_val_accuracy,
+    "Best Validation Epoch" = best_val_epoch
+  ) |>
+  kable(align = c("l", "r", "r", "r", "r", "r"), digits = 2)
+```
+
+```{r}
+#| label: fig-validation-accuracy
+#| fig-cap: "**Validation Accuracy During Training.** Validation accuracy per 
+#|   epoch for each of the three models. Training was subject to early stopping 
+#|   with a maximum of 60 epochs."
+#| fig-align: "center"
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(history_data, aes(x = epoch, y = accuracy, colour = model)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_manual(
+    values = c("Flat" = "#4C72B0", "LCPN" = "#55A868", "LCPN (Extended)" = "#DD8452")
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  scale_x_continuous(breaks = scales::breaks_width(2)) +
+  labs(x = "Epoch", y = "Validation Accuracy", colour = "Model") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+# Limitations
+
+**Dataset availability.** The zooplankton dataset used in this report is not publicly available, meaning the results presented here are not reproducible without access to the original data.
+
+**Greedy top-down prediction.** The LCPN models use a greedy top-down traversal at inference time, selecting the highest-probability child at each node independently. This means that misclassification at an upper node, e.g. a *Yes Zooplankton* image incorrectly classified as *Not Zooplankton* by the root classifier, will be assigned an incorrect leaf class regardless of the lower-level classifier outputs. A global algorithm, such as computing the joint probability over each hierarchical prediction path, would potentially mitigate this issue. Note that such an inference algorithm was implemented and tested as part of training the 3 models included in this report, however it was rejected for being much slower than the greedy alternative and was not used during training or evaluation of the final models. As shown in @tbl-metrics-by-level, both LCPN models tested achieve Level-1 and Level-2 classification accuracies above 99%, meaning that misclassification errors at parent nodes appear infrequently in practice.
+
+**Class imbalance.** Despite the per-class image cap of 10,000, substantial imbalance remains in the uncapped classes. For example, *Plant Matter* contributes only 554 images compared to 10,000 or more for *Cyclopoid*, *Calanoid*, and *Fiber*. This imbalance may inflate metrics for majority classes and reduce performance on minority classes.
+
+**Single backbone architecture.** All three models use a ResNet18 backbone. It is possible that an alternative backbone would result in a different performance between the flat and hierarchical models. Future work may examine the interaction between weaker and stronger (or untrained and pretrained) backbones and the use of a hierarchical vs. flat CNN. Further, non-CNN models, such as Vision Transformers (ViTs), may be considered as well.
 
 # Additional Tables and Figures
 
@@ -380,5 +832,96 @@ class_counts |>
   ) |>
   kable(align = c("l", "r", "r", "r", "r", "r"))
 ```
+
+```{r}
+#| label: tbl-per-class-metrics
+#| tbl-cap: "**Per-Class Leaf-Level Classification Metrics on the Held-Out Test Set**"
+
+read_results_csv("metrics_leaf_per_class.csv") |>
+  mutate(
+    class = str_to_title(str_replace_all(class, "_", " ")),
+    model = factor(model, levels = c("Flat", "LCPN", "LCPN (Extended)"))
+  ) |>
+  arrange(model, class) |>
+  rename(
+    "Model" = model,
+    "Class" = class,
+    "Accuracy" = accuracy,
+    "F1" = f1,
+    "Precision" = precision,
+    "Recall" = recall
+  ) |>
+  kable(align = c("l", "l", "r", "r", "r", "r"), digits = 4)
+```
+
+```{r}
+#| label: fig-lcpn-confusion
+#| fig-cap: "**LCPN Confusion Matrix.** Row-normalized confusion matrix 
+#|   for the LCPN model on the held-out test set. Each cell represents 
+#|   the proportion of true-class samples predicted as each class. Diagonal 
+#|   entries represent per-class recall."
+#| fig-align: "center"
+#| fig-width: 8
+#| fig-height: 7
+
+confusion_leaf |>
+  filter(model == "LCPN") |>
+  mutate(
+    true = str_to_title(str_replace_all(true, "_", " ")),
+    predicted = str_to_title(str_replace_all(predicted, "_", " ")),
+    true = fct_rev(factor(true)),
+    label = sprintf("%.2f", proportion)
+  ) |>
+  ggplot(aes(x = predicted, y = true, fill = proportion)) +
+  geom_tile() +
+  geom_text(
+    aes(label = label, color = if_else(proportion < 0.5, "black", "white")),
+    size = 3
+  ) +
+  scale_color_identity() +
+  scale_fill_distiller(palette = "Blues", direction = 1, limits = c(0, 1)) +
+  labs(x = "Predicted", y = "True", fill = "Proportion") +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+#| label: fig-lcpn-extended-confusion
+#| fig-cap: "**LCPN (Extended) Confusion Matrix.** Row-normalized confusion matrix 
+#|   for the LCPN (Extended) model on the held-out test set. Each cell represents 
+#|   the proportion of true-class samples predicted as each class. Diagonal 
+#|   entries represent per-class recall."
+#| fig-align: "center"
+#| fig-width: 8
+#| fig-height: 7
+
+confusion_leaf |>
+  filter(model == "LCPN (Extended)") |>
+  mutate(
+    true = str_to_title(str_replace_all(true, "_", " ")),
+    predicted = str_to_title(str_replace_all(predicted, "_", " ")),
+    true = fct_rev(factor(true)),
+    label = sprintf("%.2f", proportion)
+  ) |>
+  ggplot(aes(x = predicted, y = true, fill = proportion)) +
+  geom_tile() +
+  geom_text(
+    aes(label = label, color = if_else(proportion < 0.5, "black", "white")),
+    size = 3
+  ) +
+  scale_color_identity() +
+  scale_fill_distiller(palette = "Blues", direction = 1, limits = c(0, 1)) +
+  labs(x = "Predicted", y = "True", fill = "Proportion") +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+```
+
+\newpage
 
 # References

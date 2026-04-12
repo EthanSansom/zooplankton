@@ -6,3 +6,5 @@ stringr
 tidyr
 scales
 ggplot2
+readr
+forcats

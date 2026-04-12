@@ -96,6 +96,8 @@ for external use.
 
 ## Running Experiments
 
+### Demo Experiments
+
 From the project directory:
 ```bash
 # Zooplankton (data unavailable)
@@ -109,13 +111,95 @@ uv run python/emnist/99_demos/01_lcpn_model.py
 uv run python/emnist/99_demos/02_lcpn_flat_backbone_model.py
 ```
 
-Each script reads its configuration from the corresponding TOML file in 
-`00_configs/` and writes model weights, configuration, and metrics to a directory 
-in `01_results/`.
+Each script reads its configuration from the corresponding TOML file in the sibling
+directory `00_configs/` and writes model weights, configuration, and metrics to a directory 
+in `01_results/`. Configuration files are used to determine the random seed for
+an experiment and model hyperparameters such as the learning rate and early-stopping
+criteria. See `python/zooplankton/00_configs/demo_lcpn.toml` for an example of the
+required configuration parameters.
 
-The `load()` method of the `FlatModel` and `LCPNModel` classes supports re-loading
+The `load()` method of the `FlatModel` and `LCPNModel` classes supports re-loading 
 a trained model from its save directory in `01_results/`.
 
+### LCPN Experiments
+
+LCPN training scripts additionally require a hierarchy defined as a JSON file
+under `00_hierarchies/` and a JSON file in `00_label_maps` mapping directories 
+under `00_raw_data` to their corresponding class labels.
+
+The `zooplankton/00_raw_data/` directory (or any raw data directory used for
+training LCPN models) must be structured as follows:
+
+```
+00_raw_data/
+├── class1/
+│   ├── class11.tif
+│   ├── ...
+│   └── class1k.tif
+├── ...
+└── classN/
+    ├── classN1.tif
+    ├── ...
+    └── classNj.tif
+```
+Where are raw class label is encoded in a directory and all images are stored
+as `.tif` files.
+
+A label map file (e.g. `zooplankton/00_label_maps/demo_lcpn.json`) maps these
+directories to the set of classes a model is trained to classify and is structured
+like so:
+
+```
+{
+  "class12": ["class1", "class2"], # Treat two directories as one class 
+  "class4": ["class4"],            # Exclude a directory (e.g. skip "class3")
+  ...,
+  "classN": ["classN"]
+}
+```
+
+Finally, a hierarchy file (e.g. `zooplankton/00_hierarchies/demo_taxonomic.json`)
+maps these classes to nodes on a hierarchy:
+
+```
+{
+    "root": ["lt_5", "gte_5"],
+    "lt_5": ["class12", "class4"],
+    "gte_5": ["even", "odd"],
+    "even": ["class6", "class8", "classN"],
+    "odd": ["class7", "class9"]
+}
+```
+
+This hierarchy indicates that *class12* images have a hierarchical label of
+\[*lt_5*, *class12*\] while *class9* images have a hierarchical label of 
+\[*gte_5*, *odd*, *class9*\].
+
+The `zooplankton/07_experiments/` and `zooplankton/99_demos/` scripts are written
+such that all modifications to the model training parameters and hierarchy
+are made by specifying the appropriate configuration file under the `# User settings` 
+section at the top of each script:
+
+```python
+from pathlib import Path
+
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+from cnn.config import Config
+from cnn.data import ImageDataset, LCPNCollator, LCPNDataset
+from cnn.hierarchy import Hierarchy
+from cnn.label_map import LabelMap
+from cnn.models.lcpn import LCPNModel
+from cnn.utils import set_seed, split
+
+# User settings ----------------------------------------------------------------
+
+CONFIG_FILE = "demo_lcpn.toml"          # Configuration (e.g. seed)
+HIERARCHY_FILE = "demo_taxonomic.json"  # Hierarchy
+LABEL_MAP_FILE = "demo_lcpn.json"       # Label map
+MODEL_NAME = "demo_lcpn"                # Name used for the results directory
+```
 
 ## Project Setup
 
