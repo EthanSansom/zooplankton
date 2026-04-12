@@ -123,9 +123,8 @@ a trained model from its save directory in `01_results/`.
 
 ### LCPN Experiments
 
-LCPN training scripts additionally require a hierarchy defined as a JSON file
-under `00_hierarchies/` and a JSON file in `00_label_maps` mapping directories 
-under `00_raw_data` to their corresponding class labels.
+LCPN training scripts additionally require a JSON hierarchy file
+under `00_hierarchies/` and JSON class-label map under `00_label_maps/`.
 
 The `zooplankton/00_raw_data/` directory (or any raw data directory used for
 training LCPN models) must be structured as follows:
@@ -142,12 +141,11 @@ training LCPN models) must be structured as follows:
     ├── ...
     └── classNj.tif
 ```
-Where are raw class label is encoded in a directory and all images are stored
-as `.tif` files.
+Where the raw class labels are encoded in the directory names and all 
+images are stored as `.tif` files.
 
-A label map file (e.g. `zooplankton/00_label_maps/demo_lcpn.json`) maps these
-directories to the set of classes a model is trained to classify and is structured
-like so:
+A label map file (e.g. `zooplankton/00_label_maps/demo_lcpn.json`) maps these `00_raw_data/`
+subdirectories to the set of classes that you wish to classify:
 
 ```
 {
@@ -175,9 +173,9 @@ This hierarchy indicates that *class12* images have a hierarchical label of
 \[*lt_5*, *class12*\] while *class9* images have a hierarchical label of 
 \[*gte_5*, *odd*, *class9*\].
 
-The `zooplankton/07_experiments/` and `zooplankton/99_demos/` scripts are written
+Scripts under `zooplankton/97_experiments/` and `zooplankton/99_demos/` are written
 such that all modifications to the model training parameters and hierarchy
-are made by specifying the appropriate configuration file under the `# User settings` 
+are made by specifying the appropriate configuration files under the `# User settings` 
 section at the top of each script:
 
 ```python
@@ -195,10 +193,12 @@ from cnn.utils import set_seed, split
 
 # User settings ----------------------------------------------------------------
 
-CONFIG_FILE = "demo_lcpn.toml"          # Configuration (e.g. seed)
+CONFIG_FILE = "demo_lcpn.toml"          # Configuration (e.g. random seed)
 HIERARCHY_FILE = "demo_taxonomic.json"  # Hierarchy
-LABEL_MAP_FILE = "demo_lcpn.json"       # Label map
+LABEL_MAP_FILE = "demo_lcpn.json"       # Directory to label map
 MODEL_NAME = "demo_lcpn"                # Name used for the results directory
+
+# Remainder of the script...
 ```
 
 ## Project Setup
